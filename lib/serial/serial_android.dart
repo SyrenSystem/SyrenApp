@@ -1,14 +1,10 @@
-
-
 import 'package:final_project/serial/serial_base.dart';
 import 'package:usb_serial/usb_serial.dart';
 import 'dart:typed_data';
-import 'dart:convert';
 
 class SerialAndroidConnection extends SerialConnection {
   UsbPort? _port;
   bool _connected = false;
-  String _buffer = '';
 
   SerialAndroidConnection(final Function(String meassage) onMessage): super(onMessage) {
   }
@@ -21,26 +17,25 @@ class SerialAndroidConnection extends SerialConnection {
       }
       List<UsbDevice> devices = await UsbSerial.listDevices();
       print(devices);
-        UsbPort? port;
         if (devices.length == 0) {
            return false;
         }
-      port = await devices[0].create();
+      _port = await devices[0].create();
 
-      if (port != null) {
-        bool openResult = await port.open();
+      if (_port != null) {
+        bool openResult = await _port!.open();
         if (!openResult) {
           print("Failed to open");
           return false;
         }
 
-        await port.setDTR(true);
-        await port.setRTS(true);
+        await _port!.setDTR(true);
+        await _port!.setRTS(true);
 
-        port.setPortParameters(115200, UsbPort.DATABITS_8,
+        _port!.setPortParameters(115200, UsbPort.DATABITS_8,
             UsbPort.STOPBITS_1, UsbPort.PARITY_NONE);
 
-        port.inputStream!.listen((Uint8List data) {
+        _port!.inputStream!.listen((Uint8List data) {
           dataReceived(data);
         });
       }

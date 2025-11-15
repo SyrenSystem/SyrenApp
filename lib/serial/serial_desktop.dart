@@ -27,17 +27,8 @@ class SerialDesktopConnection extends SerialConnection {
     _port.config = config;
 
     final reader = SerialPortReader(_port);
-    // String buffer = '';
-
     reader.stream.listen((data) {
-      final text = String.fromCharCodes(data);
-      // buffer += text;
-      // if (buffer.contains("\r\n")) {
         dataReceived(data);
-        // print("received: $buffer");
-        // onMessage(buffer);
-        // buffer = '';
-      // }
     });
     _connected = true;
     return Future.value(true);
