@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:libserialport/libserialport.dart';
 
 void main() {
   runApp(const MyApp());
@@ -26,8 +27,52 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> {
+  late SerialPort _serialPort;
   int _selectedIndex = 0;
   bool _isPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final ports = SerialPort.availablePorts;
+    print('Available ports: $ports');
+
+    _serialPort = SerialPort(ports.first);
+    if (!_serialPort.openRead()) {
+      print('failed to open port');
+    }
+
+    final config = SerialPortConfig();
+    config.baudRate = 115200;
+    config.bits = 8;
+    config.stopBits = 1;
+    config.parity = 0;
+    _serialPort.config = config;
+
+    final reader = SerialPortReader(_serialPort);
+    String buffer = '';
+
+    reader.stream.listen((data) {
+      final text = String.fromCharCodes(data);
+      int index = text.indexOf("\t\n");
+      if (index > 0) {
+
+      }
+
+      buffer += text;
+      if (buffer.contains("\t\n")) {
+        print("received: $buffer");
+        buffer = '';
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _serialPort.close();
+    print("the serial port was closed.");
+    super.dispose();
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -62,12 +107,12 @@ class _MainPageState extends State<MainPage> {
     "Oerend Hard",
     "De Vlieger",
     "Laat Me",
-    "Het Land van Maas en Waal"
+    "Het Land van Maas en Waal",
   ];
 
   late final List<String> _libraryTitles = List.generate(
     30,
-        (index) => _dutchSongs[Random().nextInt(_dutchSongs.length)],
+    (index) => _dutchSongs[Random().nextInt(_dutchSongs.length)],
   );
 
   @override
@@ -84,17 +129,29 @@ class _MainPageState extends State<MainPage> {
                 Positioned(
                   top: 40,
                   left: MediaQuery.of(context).size.width / 2 - 20,
-                  child: const Icon(Icons.music_note, size: 40, color: Colors.red),
+                  child: const Icon(
+                    Icons.music_note,
+                    size: 40,
+                    color: Colors.red,
+                  ),
                 ),
                 Positioned(
                   bottom: 120,
                   left: 40,
-                  child: const Icon(Icons.music_note, size: 40, color: Colors.red),
+                  child: const Icon(
+                    Icons.music_note,
+                    size: 40,
+                    color: Colors.red,
+                  ),
                 ),
                 Positioned(
                   bottom: 50,
                   right: 40,
-                  child: const Icon(Icons.music_note, size: 40, color: Colors.red),
+                  child: const Icon(
+                    Icons.music_note,
+                    size: 40,
+                    color: Colors.red,
+                  ),
                 ),
                 Container(
                   width: 40,
@@ -118,7 +175,9 @@ class _MainPageState extends State<MainPage> {
                 ),
                 IconButton(
                   icon: Icon(
-                    _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                    _isPlaying
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_fill,
                     size: 50,
                   ),
                   onPressed: _togglePlayPause,
