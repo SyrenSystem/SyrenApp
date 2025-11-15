@@ -38,6 +38,7 @@ class _MainPageState extends State<MainPage> {
   late SerialConnection _serialConnection;
   int _selectedIndex = 0;
   bool _isPlaying = false;
+  String _distance = "Click on M to start measurement for 5 seconds.";
 
   @override
   void initState() {
@@ -126,8 +127,7 @@ class _MainPageState extends State<MainPage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
-            child: Stack(
-              alignment: Alignment.center,
+            child: Column(
               children: [
 
                 ElevatedButton(
@@ -166,15 +166,28 @@ class _MainPageState extends State<MainPage> {
                       //         print(text);
                       //       });
                       _serialConnection = SerialConnection.create((String message){
-                        print("UI: RECEIVED $message");
+                        try {
+                          Map<String, dynamic> distanceData = jsonDecode(message);
+                          print("Distance: ${distanceData['distance']}");
+                          setState(() {
+                            _distance = "Distance: ${distanceData['distance']}";
+                          });
+                        }
+                        catch (e)
+                        {
+                          print("Error parsing JSON.");
+                        }
                         });
                       final devices = await _serialConnection.getAvailableDevices();
-                      _serialConnection.connect(devices.first);
+                      await _serialConnection.connect(devices.first);
                             Timer (const Duration(seconds: 5), (){
                               _serialConnection.disconnect();
                             });
                     },
-                  )
+                  ),
+                Text(_distance
+
+                )
 
                 // Positioned(
                 //   top: 40,
