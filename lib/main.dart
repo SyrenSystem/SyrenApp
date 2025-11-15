@@ -35,40 +35,38 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
 
-  late SerialConnection _serialConnection;
-  int _selectedIndex = 0;
-  bool _isPlaying = false;
-  String _distance = "Click on M to start measurement for 5 seconds.";
+  // initialize the serial connection
+  late SerialConnection _serialConnection = SerialConnection.create((String message){
+    try {
+      Map<String, dynamic> distanceData = jsonDecode(message);
+      print("Distance: ${distanceData['distance']}");
+      setState(() {
+        _displayTextDistance = "Distance: ${distanceData['distance']}";
+      });
+    }
+    catch (e)
+    {
+      print("Error parsing JSON.");
+    }
+  });
 
-  @override
-  void initState() {
-    super.initState();
-    // final ports = SerialPort.availablePorts;
-    // print('Available ports: $ports');
-    //
-    // _serialPort = SerialPort(ports.first);
-    // if (!_serialPort.openRead()) {
-    //   print('failed to open port');
-    // }
-    //
-    // final config = SerialPortConfig();
-    // config.baudRate = 115200;
-    // config.bits = 8;
-    // config.stopBits = 1;
-    // config.parity = 0;
-    // _serialPort.config = config;
-    //
-    // final reader = SerialPortReader(_serialPort);
-    // String buffer = '';
-    //
-    // reader.stream.listen((data) {
-    //   final text = String.fromCharCodes(data);
-    //   buffer += text;
-    //   if (buffer.contains("\r\n")) {
-    //     print("received: $buffer");
-    //     buffer = '';
-    //   }
-    // });
+  int _selectedNavViewIndex = 0;
+  bool _isPlaying = false;
+  String _displayTextDistance = "Click Start to start sensor measurement.";
+  String _displayTextStartStopSerialButton = "Start";
+  Color _colorStartStopSerialButton = Colors.green;
+
+  void toggleSerialConnectionButton() {
+    setState(() {
+      if (_serialConnection.connected) {
+        _displayTextStartStopSerialButton = "Stop";
+        _colorStartStopSerialButton = Colors.red;
+      }
+      else {
+        _displayTextStartStopSerialButton = "Start";
+        _colorStartStopSerialButton = Colors.green;
+      }
+    });
   }
 
   @override
@@ -80,7 +78,7 @@ class _MainPageState extends State<MainPage> {
 
   void _onItemTapped(int index) {
     setState(() {
-      _selectedIndex = index;
+      _selectedNavViewIndex = index;
     });
   }
 
@@ -129,65 +127,25 @@ class _MainPageState extends State<MainPage> {
           Expanded(
             child: Column(
               children: [
-
                 ElevatedButton(
                     child: Text(
-                      'M',
-                      style: TextStyle(color: Colors.green),
+                      _displayTextStartStopSerialButton,
+                      style: TextStyle(color: _colorStartStopSerialButton),
                     ),
                     onPressed: () async {
-                      // print("TEST from button m");
-                      //   List<UsbDevice> devices = await UsbSerial.listDevices();
-                      //   print(devices);
-                      //
-                      //   UsbPort? port;
-                      //   if (devices.length == 0) {
-                      //     return;
-                      //   }
-                      //   port = await devices[0].create();
-                      //
-                      //   if (port != null)
-                      //     {
-                      //       bool openResult = await port.open();
-                      //       if ( !openResult ) {
-                      //         print("Failed to open");
-                      //         return;
-                      //       }
-                      //
-                      //       await port.setDTR(true);
-                      //       await port.setRTS(true);
-                      //
-                      //       port.setPortParameters(115200, UsbPort.DATABITS_8,
-                      //           UsbPort.STOPBITS_1, UsbPort.PARITY_NONE);
-                      //
-                      //       // print first result and close port.
-                      //       port.inputStream!.listen((Uint8List event) {
-                      //         String text = utf8.decode(event);
-                      //         print(text);
-                      //       });
-                      _serialConnection = SerialConnection.create((String message){
-                        try {
-                          Map<String, dynamic> distanceData = jsonDecode(message);
-                          print("Distance: ${distanceData['distance']}");
-                          setState(() {
-                            _distance = "Distance: ${distanceData['distance']}";
-                          });
-                        }
-                        catch (e)
+                      if (_serialConnection.connected)
                         {
-                          print("Error parsing JSON.");
+                          _serialConnection.disconnect();
+                          toggleSerialConnectionButton();
+                          return;
                         }
-                        });
+
                       final devices = await _serialConnection.getAvailableDevices();
                       await _serialConnection.connect(devices.first);
-                            Timer (const Duration(seconds: 5), (){
-                              _serialConnection.disconnect();
-                            });
+                      toggleSerialConnectionButton();
                     },
                   ),
-                Text(_distance
-
-                )
+                Text(_displayTextDistance)
 
                 // Positioned(
                 //   top: 40,
@@ -276,7 +234,7 @@ class _MainPageState extends State<MainPage> {
         centerTitle: true,
         backgroundColor: Colors.deepPurple,
       ),
-      body: pages[_selectedIndex],
+      body: pages[_selectedNavViewIndex],
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
@@ -288,7 +246,7 @@ class _MainPageState extends State<MainPage> {
             label: 'Library',
           ),
         ],
-        currentIndex: _selectedIndex,
+        currentIndex: _selectedNavViewIndex,
         selectedItemColor: Colors.deepPurple,
         onTap: _onItemTapped,
       ),

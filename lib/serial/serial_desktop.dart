@@ -12,6 +12,9 @@ class SerialDesktopConnection extends SerialConnection {
 }
 
   @override
+  bool get connected => _connected;
+
+  @override
   Future<bool> connect(String portName, [int portNumber = 115200]) {
     _port = SerialPort(portName);
     if (!_port.openRead()) {

@@ -6,8 +6,12 @@ class SerialAndroidConnection extends SerialConnection {
   UsbPort? _port;
   bool _connected = false;
 
+
   SerialAndroidConnection(final Function(String meassage) onMessage): super(onMessage) {
   }
+
+  @override
+  bool get connected => _connected;
 
   @override
   Future<bool> connect(String portName, [int port = 115200]) async {
@@ -39,6 +43,7 @@ class SerialAndroidConnection extends SerialConnection {
           dataReceived(data);
         });
       }
+      _connected = true;
 
     return true;
   }

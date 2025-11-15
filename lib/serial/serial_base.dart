@@ -8,6 +8,7 @@ import 'dart:io';
 
   abstract class SerialConnection {
     String _buffer = '';
+    bool get connected;
     static SerialConnection create(onMessageReceivedCallback) {
       if (Platform.isAndroid)
       {
