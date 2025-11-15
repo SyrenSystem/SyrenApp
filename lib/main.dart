@@ -1,3 +1,5 @@
+import 'package:final_project/serial/serial_desktop.dart';
+import 'package:final_project/serial/serial_base.dart';
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'package:libserialport/libserialport.dart';
@@ -33,8 +35,7 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
 
-  late SerialPort _serialPort;
-
+  late SerialConnection _serialConnection;
   int _selectedIndex = 0;
   bool _isPlaying = false;
 
@@ -71,7 +72,7 @@ class _MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
-    _serialPort.close();
+    _serialConnection.disconnect();
     print("the serial port was closed.");
     super.dispose();
   }
@@ -132,43 +133,46 @@ class _MainPageState extends State<MainPage> {
                 ElevatedButton(
                     child: Text(
                       'M',
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(color: Colors.green),
                     ),
                     onPressed: () async {
-                      print("TEST from button m");
-                        List<UsbDevice> devices = await UsbSerial.listDevices();
-                        print(devices);
-
-                        UsbPort? port;
-                        if (devices.length == 0) {
-                          return;
-                        }
-                        port = await devices[0].create();
-
-                        if (port != null)
-                          {
-                            bool openResult = await port.open();
-                            if ( !openResult ) {
-                              print("Failed to open");
-                              return;
-                            }
-
-                            await port.setDTR(true);
-                            await port.setRTS(true);
-
-                            port.setPortParameters(115200, UsbPort.DATABITS_8,
-                                UsbPort.STOPBITS_1, UsbPort.PARITY_NONE);
-
-                            // print first result and close port.
-                            port.inputStream!.listen((Uint8List event) {
-                              String text = utf8.decode(event);
-                              print(text);
-                            });
+                      // print("TEST from button m");
+                      //   List<UsbDevice> devices = await UsbSerial.listDevices();
+                      //   print(devices);
+                      //
+                      //   UsbPort? port;
+                      //   if (devices.length == 0) {
+                      //     return;
+                      //   }
+                      //   port = await devices[0].create();
+                      //
+                      //   if (port != null)
+                      //     {
+                      //       bool openResult = await port.open();
+                      //       if ( !openResult ) {
+                      //         print("Failed to open");
+                      //         return;
+                      //       }
+                      //
+                      //       await port.setDTR(true);
+                      //       await port.setRTS(true);
+                      //
+                      //       port.setPortParameters(115200, UsbPort.DATABITS_8,
+                      //           UsbPort.STOPBITS_1, UsbPort.PARITY_NONE);
+                      //
+                      //       // print first result and close port.
+                      //       port.inputStream!.listen((Uint8List event) {
+                      //         String text = utf8.decode(event);
+                      //         print(text);
+                      //       });
+                      _serialConnection = SerialConnection.create((String message){
+                        print("UI: RECEIVED $message");
+                        });
+                      final devices = await _serialConnection.getAvailableDevices();
+                      _serialConnection.connect(devices.first);
                             Timer (const Duration(seconds: 5), (){
-                              port!.close();
+                              _serialConnection.disconnect();
                             });
-                          }
-
                     },
                   )
 
@@ -278,3 +282,4 @@ class _MainPageState extends State<MainPage> {
     );
   }
 }
+
