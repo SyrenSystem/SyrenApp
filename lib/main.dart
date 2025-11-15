@@ -1,11 +1,6 @@
-import 'package:final_project/serial/serial_desktop.dart';
 import 'package:final_project/serial/serial_base.dart';
 import 'package:flutter/material.dart';
 import 'dart:math';
-import 'package:libserialport/libserialport.dart';
-import 'package:usb_serial/usb_serial.dart';
-import 'dart:typed_data';
-import 'dart:async';
 import 'dart:convert';
 
 void main() {
@@ -146,42 +141,6 @@ class _MainPageState extends State<MainPage> {
                     },
                   ),
                 Text(_displayTextDistance)
-
-                // Positioned(
-                //   top: 40,
-                //   left: MediaQuery.of(context).size.width / 2 - 20,
-                //   child: const Icon(
-                //     Icons.music_note,
-                //     size: 40,
-                //     color: Colors.red,
-                //   ),
-                // ),
-                // Positioned(
-                //   bottom: 120,
-                //   left: 40,
-                //   child: const Icon(
-                //     Icons.music_note,
-                //     size: 40,
-                //     color: Colors.red,
-                //   ),
-                // ),
-                // Positioned(
-                //   bottom: 50,
-                //   right: 40,
-                //   child: const Icon(
-                //     Icons.music_note,
-                //     size: 40,
-                //     color: Colors.red,
-                //   ),
-                // ),
-                // Container(
-                //   width: 40,
-                //   height: 40,
-                //   decoration: const BoxDecoration(
-                //     color: Colors.blue,
-                //     shape: BoxShape.circle,
-                //   ),
-                // ),
               ],
             ),
           ),
