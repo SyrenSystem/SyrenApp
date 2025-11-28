@@ -12,6 +12,13 @@ void main() {
   runApp(const MyApp());
 }
 
+class DistanceItem {
+  final String id;
+  double distance;
+
+  DistanceItem({required this.id, required this.distance});
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -40,16 +47,33 @@ class _MainPageState extends State<MainPage> {
   String _displayTextStartStopSerialButton = "Start";
   Color _colorStartStopSerialButton = Colors.green;
   MQTTClient _mqttClient = MQTTClient(mqttBrokerIp);
+  final List<DistanceItem> _distanceItems = [];
 
   // initialize the serial connection
   late SerialConnection _serialConnection = SerialConnection.create((String message){
     try {
       Map<String, dynamic> distanceData = jsonDecode(message);
       _mqttClient.sendDistance(message);
+      String id = distanceData["id"];
+      double distance = (distanceData["distance"] as num).toDouble();
       print("Distance: ${distanceData['distance']}");
       setState(() {
         _displayTextDistance = "${distanceData["id"]}: ${distanceData['distance']}mm";
       });
+      final index = _distanceItems.indexWhere((item) => item.id == id);
+      if (index != -1)
+      {
+        setState(() {
+          _distanceItems[index].distance = distance;
+        });
+      }
+      else
+        {
+          setState(() {
+            _distanceItems.add(DistanceItem(id: id, distance: distance));
+          });
+        }
+
     }
     catch (e)
     {
@@ -84,6 +108,10 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _togglePlayPause() {
+    setState(() {
+      _distanceItems.add(DistanceItem(id: "AA:BBE", distance: 0815));
+      _distanceItems.add(DistanceItem(id: "AA:BB:cc", distance: 032));
+    });
     setState(() {
       _isPlaying = !_isPlaying;
     });
@@ -148,7 +176,24 @@ class _MainPageState extends State<MainPage> {
                       toggleSerialConnectionButton();
                     },
                   ),
-                Text(_displayTextDistance)
+                Text(_displayTextDistance),
+                // Container(
+                //   height: 200,
+                //   color: Colors.blue
+                // )
+                Container(
+                  height: 300,
+                  color: Colors.blue,
+                  child: ListView.builder(
+                  itemCount: _distanceItems.length,
+                  itemBuilder: (context, index) {
+                  final item = _distanceItems[index];
+                  return ListTile(
+                  leading: Text("ID: ${item.id}"),
+                  title: Text("Distance: ${item.distance.toStringAsFixed(2)}mm")
+                  );
+                })
+                )
               ],
             ),
           ),
