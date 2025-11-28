@@ -1,11 +1,9 @@
 import 'package:final_project/communication/mqtt.dart';
 import 'package:final_project/serial/serial_base.dart';
 import 'package:flutter/material.dart';
-import 'dart:math';
 import 'dart:convert';
 
-
-String mqttBrokerIp = "localhost";
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
 
@@ -42,15 +40,44 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
 
   int _selectedNavViewIndex = 0;
-  bool _isPlaying = false;
   String _displayTextDistance = "Click Start to start sensor measurement.";
   String _displayTextStartStopSerialButton = "Start";
   Color _colorStartStopSerialButton = Colors.green;
-  MQTTClient _mqttClient = MQTTClient(mqttBrokerIp);
+  late MQTTClient _mqttClient;
   final List<DistanceItem> _distanceItems = [];
+  final TextEditingController _ipController = TextEditingController();
+  final TextEditingController _portController = TextEditingController();
+
+  Future<void> _saveSettings() async {
+    final ip = _ipController.text.trim();
+    final port = int.tryParse(_portController.text.trim());
+
+    if (ip.isEmpty || port == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter a valid IP and port")),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ip', ip);
+    await prefs.setInt('port', port);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Settings saved")),
+    );
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _ipController.text = prefs.getString('ip') ?? '';
+      _portController.text = prefs.getInt('port')?.toString() ?? '';
+    });
+  }
 
   // initialize the serial connection
-  late SerialConnection _serialConnection = SerialConnection.create((String message){
+  late final SerialConnection _serialConnection = SerialConnection.create((String message){
     try {
       Map<String, dynamic> distanceData = jsonDecode(message);
       _mqttClient.sendDistance(message);
@@ -94,9 +121,16 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
+  @override void initState() {
+    super.initState();
+    _loadSettings();
+    _mqttClient = MQTTClient();
+  }
+
   @override
   void dispose() {
     _serialConnection.disconnect();
+    _mqttClient.disconnect();
     print("the serial port was closed.");
     super.dispose();
   }
@@ -107,44 +141,6 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
-  void _togglePlayPause() {
-    setState(() {
-      _distanceItems.add(DistanceItem(id: "AA:BBE", distance: 0815));
-      _distanceItems.add(DistanceItem(id: "AA:BB:cc", distance: 032));
-    });
-    setState(() {
-      _isPlaying = !_isPlaying;
-    });
-  }
-
-  // Pool of Dutch song names
-  final List<String> _dutchSongs = [
-    "Het is een Nacht",
-    "Zij Gelooft in Mij",
-    "Ik Leef Niet Meer voor Jou",
-    "Bloed, Zweet en Tranen",
-    "Iedereen is van de Wereld",
-    "Pastorale",
-    "Avond",
-    "15 Miljoen Mensen",
-    "Dromen Zijn Bedrog",
-    "Als de Morgen is Gekomen",
-    "Zeg Maar Niets Meer",
-    "Suzanne",
-    "Vivo per Lei (NL versie)",
-    "Leef",
-    "Mag Ik Dan Bij Jou",
-    "Ik Kan Het Niet Alleen",
-    "Oerend Hard",
-    "De Vlieger",
-    "Laat Me",
-    "Het Land van Maas en Waal",
-  ];
-
-  late final List<String> _libraryTitles = List.generate(
-    30,
-    (index) => _dutchSongs[Random().nextInt(_dutchSongs.length)],
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -170,9 +166,30 @@ class _MainPageState extends State<MainPage> {
                           return;
                         }
 
+                      String ip = _ipController.text.toString();
+                      int? port = int.tryParse(_portController.text);
+                      if (ip.isEmpty || port == null)
+                        {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+                          return;
+                        }
+                      if (!await _mqttClient.connect(ip, port))
+                        {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Could not connect to MQTT.")));
+                          return;
+                        }
+
                       final devices = await _serialConnection.getAvailableDevices();
+                      if (devices.isEmpty)
+                        {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("No USB sensor detected.")));
+                          return;
+                        }
+
                       await _serialConnection.connect(devices.first);
-                      await _mqttClient.connect();
                       toggleSerialConnectionButton();
                     },
                   ),
@@ -197,47 +214,54 @@ class _MainPageState extends State<MainPage> {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.skip_previous, size: 40),
-                  onPressed: () {},
-                ),
-                IconButton(
-                  icon: Icon(
-                    _isPlaying
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_fill,
-                    size: 50,
-                  ),
-                  onPressed: _togglePlayPause,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.skip_next, size: 40),
-                  onPressed: () {},
-                ),
-              ],
-            ),
-          ),
         ],
       ),
 
-      // LIBRARY PAGE with scrollable list of Dutch songs
-      ListView.builder(
-        itemCount: _libraryTitles.length,
-        itemBuilder: (context, index) {
-          return ListTile(
-            leading: const Icon(Icons.music_note, color: Colors.deepPurple),
-            title: Text(_libraryTitles[index]),
-            onTap: () {
-              // TODO: handle tapping a track
-            },
-          );
-        },
+      // page volume control
+      Container(
+        color: Colors.green,
       ),
+
+      // page settings
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Connection Settings",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ipController,
+              decoration: const InputDecoration(
+                labelText: "IP Address",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _portController,
+              decoration: const InputDecoration(
+                labelText: "Port",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _saveSettings,
+              child: const Text("Save"),
+            ),
+          ],
+        ),
+      )
     ];
 
     return Scaffold(
@@ -250,12 +274,16 @@ class _MainPageState extends State<MainPage> {
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.play_circle_fill),
-            label: 'Playing',
+            icon: Icon(Icons.social_distance),
+            label: 'Distance',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.library_music),
-            label: 'Library',
+            icon: Icon(Icons.volume_up_rounded),
+            label: 'Volume',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
           ),
         ],
         currentIndex: _selectedNavViewIndex,

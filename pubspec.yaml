@@ -37,6 +37,7 @@ dependencies:
   libserialport:
   usb_serial:
   mqtt_client:
+  shared_preferences:
 #  usb_serial:
 
 dev_dependencies:
