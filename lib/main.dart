@@ -17,6 +17,13 @@ class DistanceItem {
   DistanceItem({required this.id, required this.distance});
 }
 
+class VolumeItem {
+  final String id;
+  int volume;
+
+  VolumeItem({required this.id, required this.volume});
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -45,6 +52,7 @@ class _MainPageState extends State<MainPage> {
   Color _colorStartStopSerialButton = Colors.green;
   late MQTTClient _mqttClient;
   final List<DistanceItem> _distanceItems = [];
+  final List<VolumeItem> _volumeItems = [];
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
 
@@ -76,17 +84,18 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
-  void _addDistanceItem(DistanceItem item) {
+  void _addDistanceSensor(DistanceItem item) {
     if (_mqttClient.is_connected())
       {
         _mqttClient.sendSpeakerConnectionInformation(item.id, true);
       }
     setState(() {
       _distanceItems.add(item);
+      _volumeItems.add(VolumeItem(id: item.id, volume: 100));
     });
   }
 
-  void _removeDistanceItem(DistanceItem item) {
+  void _removeDistanceSensor(DistanceItem item) {
     if (_mqttClient.is_connected())
     {
       _mqttClient.sendSpeakerConnectionInformation(item.id, false);
@@ -116,7 +125,7 @@ class _MainPageState extends State<MainPage> {
       }
       else
         {
-          _addDistanceItem(DistanceItem(id: id, distance: distance));
+          _addDistanceSensor(DistanceItem(id: id, distance: distance));
         }
 
     }
@@ -181,7 +190,7 @@ class _MainPageState extends State<MainPage> {
                           List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
                           for (DistanceItem item in toRemoveDistances)
                           {
-                            _removeDistanceItem(item);
+                            _removeDistanceSensor(item);
                           }
                           _serialConnection.disconnect();
                           toggleSerialConnectionButton();
@@ -241,9 +250,28 @@ class _MainPageState extends State<MainPage> {
       ),
 
       // page volume control
-      Container(
-        color: Colors.green,
+      ListView.builder(
+        itemCount: _volumeItems.length,
+        itemBuilder: (context, index) {
+        final item = _volumeItems[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(item.id),
+              Slider(
+                  value: item.volume.toDouble(),
+                  min: 0,
+                max: 100,
+                divisions: 100,
+                label:(item.volume.toString()),
+                onChanged: (double value) {
+                    print("volume changed:");
+              })
+            ],
+    );
+    }
       ),
+
 
       // page settings
       Container(

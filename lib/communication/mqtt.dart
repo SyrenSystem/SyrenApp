@@ -75,7 +75,7 @@ class MQTTClient {
   }
 
   bool sendDistance(String rawDistanceData,
-      [String topic = "SyrenSystem/SyrenApp/UpdateDistances"]) {
+      [String topic = "SyrenSystem/SyrenApp/UpdateDistance"]) {
     Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
     final dataToSend =
       {
