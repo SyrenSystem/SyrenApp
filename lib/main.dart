@@ -76,6 +76,26 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
+  void _addDistanceItem(DistanceItem item) {
+    if (_mqttClient.is_connected())
+      {
+        _mqttClient.sendSpeakerConnectionInformation(item.id, true);
+      }
+    setState(() {
+      _distanceItems.add(item);
+    });
+  }
+
+  void _removeDistanceItem(DistanceItem item) {
+    if (_mqttClient.is_connected())
+    {
+      _mqttClient.sendSpeakerConnectionInformation(item.id, false);
+    }
+    setState(() {
+      _distanceItems.remove(item);
+    });
+  }
+
   // initialize the serial connection
   late final SerialConnection _serialConnection = SerialConnection.create((String message){
     try {
@@ -96,9 +116,7 @@ class _MainPageState extends State<MainPage> {
       }
       else
         {
-          setState(() {
-            _distanceItems.add(DistanceItem(id: id, distance: distance));
-          });
+          _addDistanceItem(DistanceItem(id: id, distance: distance));
         }
 
     }
@@ -160,8 +178,12 @@ class _MainPageState extends State<MainPage> {
                     onPressed: () async {
                       if (_serialConnection.connected)
                         {
+                          List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
+                          for (DistanceItem item in toRemoveDistances)
+                          {
+                            _removeDistanceItem(item);
+                          }
                           _serialConnection.disconnect();
-                          _mqttClient.disconnect();
                           toggleSerialConnectionButton();
                           return;
                         }
@@ -174,7 +196,8 @@ class _MainPageState extends State<MainPage> {
                               const SnackBar(content: Text("Invalid MQTT connection preferences.")));
                           return;
                         }
-                      if (!await _mqttClient.connect(ip, port))
+
+                      if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port))
                         {
                           ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text("Could not connect to MQTT.")));

@@ -75,19 +75,41 @@ class MQTTClient {
   }
 
   bool sendDistance(String rawDistanceData,
-      [String topic = "SyrenSystem/SyrenApp/sensorData"]) {
+      [String topic = "SyrenSystem/SyrenApp/UpdateDistances"]) {
     Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
     final dataToSend =
-    [
       {
         "id": distanceData["id"],
         "distance": distanceData['distance']
       }
-    ];
+    ;
 
     final jsonToSend = jsonEncode(dataToSend);
+    if (_connected) {
+      publish(topic, jsonToSend);
+      return true;
+    }
+    return false;
+  }
 
-    publish(topic, jsonToSend);
-    return true;
+  bool sendSpeakerConnectionInformation(String id, bool connected) {
+    String topic;
+    if (connected) {
+      topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
+    }
+    else {
+      topic = "SyrenSystem/SyrenApp/DisconnectSpeaker";
+    }
+
+    final toSendData = {
+      "id": id
+    };
+    final jsonToSend = jsonEncode(toSendData);
+    if (_connected) {
+      publish(topic, jsonToSend);
+      return true;
+    }
+    return false;
   }
 }
+
