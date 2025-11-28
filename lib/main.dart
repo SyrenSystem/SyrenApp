@@ -1,7 +1,11 @@
+import 'package:final_project/communication/mqtt.dart';
 import 'package:final_project/serial/serial_base.dart';
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'dart:convert';
+
+
+String mqttBrokerIp = "localhost";
 
 void main() {
 
@@ -30,26 +34,28 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
 
-  // initialize the serial connection
-  late SerialConnection _serialConnection = SerialConnection.create((String message){
-    try {
-      Map<String, dynamic> distanceData = jsonDecode(message);
-      print("Distance: ${distanceData['distance']}");
-      setState(() {
-        _displayTextDistance = "Distance: ${distanceData['distance']}";
-      });
-    }
-    catch (e)
-    {
-      print("Error parsing JSON.");
-    }
-  });
-
   int _selectedNavViewIndex = 0;
   bool _isPlaying = false;
   String _displayTextDistance = "Click Start to start sensor measurement.";
   String _displayTextStartStopSerialButton = "Start";
   Color _colorStartStopSerialButton = Colors.green;
+  MQTTClient _mqttClient = MQTTClient(mqttBrokerIp);
+
+  // initialize the serial connection
+  late SerialConnection _serialConnection = SerialConnection.create((String message){
+    try {
+      Map<String, dynamic> distanceData = jsonDecode(message);
+      _mqttClient.sendDistance(message);
+      print("Distance: ${distanceData['distance']}");
+      setState(() {
+        _displayTextDistance = "${distanceData["id"]}: ${distanceData['distance']}mm";
+      });
+    }
+    catch (e)
+    {
+      print(e.toString());
+    }
+  });
 
   void toggleSerialConnectionButton() {
     setState(() {
@@ -131,12 +137,14 @@ class _MainPageState extends State<MainPage> {
                       if (_serialConnection.connected)
                         {
                           _serialConnection.disconnect();
+                          _mqttClient.disconnect();
                           toggleSerialConnectionButton();
                           return;
                         }
 
                       final devices = await _serialConnection.getAvailableDevices();
                       await _serialConnection.connect(devices.first);
+                      await _mqttClient.connect();
                       toggleSerialConnectionButton();
                     },
                   ),
