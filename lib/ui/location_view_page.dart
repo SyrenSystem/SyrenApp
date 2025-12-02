@@ -1,39 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:final_project/models/position_3d.dart';
+import 'package:final_project/models/speaker_data.dart';
 import 'dart:math' as math;
-
-class Position3D {
-  final double x;
-  final double y;
-  final double z;
-
-  Position3D({required this.x, required this.y, required this.z});
-
-  factory Position3D.fromJson(Map<String, dynamic> json) {
-    return Position3D(
-      x: (json['x'] as num).toDouble(),
-      y: (json['y'] as num).toDouble(),
-      z: (json['z'] as num).toDouble(),
-    );
-  }
-}
-
-class SpeakerData {
-  final String id;
-  final Position3D position;
-
-  SpeakerData({required this.id, required this.position});
-}
 
 class LocationViewPage extends StatefulWidget {
   final Position3D? userPosition;
   final List<SpeakerData> speakers;
-  final VoidCallback? onStartMeasurement;
 
   const LocationViewPage({
     super.key,
     this.userPosition,
     this.speakers = const [],
-    this.onStartMeasurement,
   });
 
   @override
@@ -112,35 +89,6 @@ class _LocationViewPageState extends State<LocationViewPage> {
                   ),
                 );
               },
-            ),
-          ),
-
-          // Start Measurement Button
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: widget.onStartMeasurement,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFd4af37),
-                  foregroundColor: const Color(0xFF0a101f),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 8,
-                  shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
-                ),
-                child: const Text(
-                  'START MEASUREMENT',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
             ),
           ),
         ],

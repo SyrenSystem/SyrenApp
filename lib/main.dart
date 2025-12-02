@@ -1,28 +1,12 @@
-import 'package:final_project/communication/mqtt.dart';
-import 'package:final_project/serial/serial_base.dart';
-import 'package:final_project/ui/location_view_page.dart';
 import 'package:flutter/material.dart';
-import 'dart:convert';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:final_project/ui/location_view_page.dart';
+import 'package:final_project/providers/app_state_providers.dart';
+import 'package:final_project/providers/measurement_provider.dart';
 
 void main() {
-
-  runApp(const MyApp());
-}
-
-class DistanceItem {
-  final String id;
-  double distance;
-
-  DistanceItem({required this.id, required this.distance});
-}
-
-class VolumeItem {
-  final String id;
-  int volume;
-
-  VolumeItem({required this.id, required this.volume});
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -38,31 +22,40 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class MainPage extends StatefulWidget {
+class MainPage extends ConsumerStatefulWidget {
   const MainPage({super.key});
 
   @override
-  State<MainPage> createState() => _MainPageState();
+  ConsumerState<MainPage> createState() => _MainPageState();
 }
 
-class _MainPageState extends State<MainPage> {
-  int _selectedNavViewIndex = 0;
-  late MQTTClient _mqttClient;
-  final List<DistanceItem> _distanceItems = [];
-  final List<VolumeItem> _volumeItems = [];
+class _MainPageState extends ConsumerState<MainPage> {
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
-  Position3D? _userPosition;
-  final Map<String, SpeakerData> _speakers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
 
   Future<void> _saveSettings() async {
     final ip = _ipController.text.trim();
     final port = int.tryParse(_portController.text.trim());
 
     if (ip.isEmpty || port == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid IP and port")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please enter a valid IP and port")),
+        );
+      }
       return;
     }
 
@@ -70,9 +63,11 @@ class _MainPageState extends State<MainPage> {
     await prefs.setString('ip', ip);
     await prefs.setInt('port', port);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Settings saved")),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Settings saved")),
+      );
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -83,138 +78,58 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
-  void _addDistanceSensor(DistanceItem item) {
-    if (_mqttClient.is_connected())
-      {
-        _mqttClient.sendSpeakerConnectionInformation(item.id, true);
-      }
-    setState(() {
-      _distanceItems.add(item);
-      _volumeItems.add(VolumeItem(id: item.id, volume: 100));
-    });
-  }
-
-  void _removeDistanceSensor(DistanceItem item) {
-    if (_mqttClient.is_connected())
-    {
-      _mqttClient.sendSpeakerConnectionInformation(item.id, false);
-    }
-    setState(() {
-      _distanceItems.remove(item);
-    });
-  }
-
-  late final SerialConnection _serialConnection = SerialConnection.create((String message) {
-    try {
-      Map<String, dynamic> distanceData = jsonDecode(message);
-      _mqttClient.sendDistance(message);
-      String id = distanceData["id"];
-      double distance = (distanceData["distance"] as num).toDouble();
-
-      final index = _distanceItems.indexWhere((item) => item.id == id);
-      if (index != -1) {
-        setState(() {
-          _distanceItems[index].distance = distance;
-        });
-      } else {
-        _addDistanceSensor(DistanceItem(id: id, distance: distance));
-      }
-    } catch (e) {
-      print('Error processing distance data: $e');
-    }
-  });
-
   Future<void> _startMeasurement() async {
-    if (_serialConnection.connected) {
-      _stopMeasurement();
+    final controller = ref.read(measurementControllerProvider);
+
+    if (controller.isConnected) {
+      controller.stopMeasurement();
+      setState(() {}); // Rebuild to update button text
       return;
     }
 
-    String ip = _ipController.text.toString();
-    int? port = int.tryParse(_portController.text);
+    final ip = _ipController.text.toString();
+    final port = int.tryParse(_portController.text);
+
     if (ip.isEmpty || port == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+      }
       return;
     }
 
-    if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port)) {
+    final error = await controller.startMeasurement(ip, port);
+    if (error != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Could not connect to MQTT.")));
-      return;
+        SnackBar(content: Text(error)));
     }
 
-    final devices = await _serialConnection.getAvailableDevices();
-    if (devices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No USB sensor detected.")));
-      return;
-    }
-
-    await _serialConnection.connect(devices.first);
+    setState(() {}); // Rebuild to update button text
   }
-
-  void _stopMeasurement() {
-    List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
-    for (DistanceItem item in toRemoveDistances) {
-      _removeDistanceSensor(item);
-    }
-    _serialConnection.disconnect();
-  }
-
-  @override void initState() {
-    super.initState();
-    _loadSettings();
-    _mqttClient = MQTTClient();
-
-    // Set up MQTT callbacks
-    _mqttClient.onUserPositionReceived = (positionData) {
-      setState(() {
-        _userPosition = Position3D.fromJson(positionData);
-      });
-    };
-
-    _mqttClient.onSpeakerPositionReceived = (id, positionData) {
-      setState(() {
-        _speakers[id] = SpeakerData(
-          id: id,
-          position: Position3D.fromJson(positionData),
-        );
-      });
-    };
-  }
-
-  @override
-  void dispose() {
-    _serialConnection.disconnect();
-    _mqttClient.disconnect();
-    print("the serial port was closed.");
-    super.dispose();
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedNavViewIndex = index;
-    });
-  }
-
 
   @override
   Widget build(BuildContext context) {
+    final selectedNavIndex = ref.watch(selectedNavIndexProvider);
+    final distanceItems = ref.watch(distanceItemsProvider);
+    final volumeItems = ref.watch(volumeItemsProvider);
+    final userPosition = ref.watch(userPositionProvider);
+    final speakers = ref.watch(speakersProvider);
+    final controller = ref.read(measurementControllerProvider);
+
     final List<Widget> pages = [
       // Location View Page
       LocationViewPage(
-        userPosition: _userPosition,
-        speakers: _speakers.values.toList(),
+        userPosition: userPosition,
+        speakers: speakers.values.toList(),
       ),
 
       // Distance Debug Page
       Padding(
         padding: const EdgeInsets.all(16.0),
         child: ListView.builder(
-          itemCount: _distanceItems.length,
+          itemCount: distanceItems.length,
           itemBuilder: (context, index) {
-            final item = _distanceItems[index];
+            final item = distanceItems[index];
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.speaker),
@@ -230,9 +145,9 @@ class _MainPageState extends State<MainPage> {
       Padding(
         padding: const EdgeInsets.all(16.0),
         child: ListView.builder(
-          itemCount: _volumeItems.length,
+          itemCount: volumeItems.length,
           itemBuilder: (context, index) {
-            final item = _volumeItems[index];
+            final item = volumeItems[index];
             return Card(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -253,9 +168,10 @@ class _MainPageState extends State<MainPage> {
                       divisions: 100,
                       label: item.volume.toString(),
                       onChanged: (double value) {
-                        setState(() {
-                          item.volume = value.toInt();
-                        });
+                        ref.read(volumeItemsProvider.notifier).updateVolume(
+                              item.id,
+                              value.toInt(),
+                            );
                       },
                     ),
                   ],
@@ -311,14 +227,14 @@ class _MainPageState extends State<MainPage> {
     return Scaffold(
       body: Stack(
         children: [
-          pages[_selectedNavViewIndex],
+          pages[selectedNavIndex],
 
           // Start Measurement Button - hovering over location view
-          if (_selectedNavViewIndex == 0)
+          if (selectedNavIndex == 0)
             Positioned(
               left: 24,
               right: 24,
-              bottom: 180, // Position above the navigation bar
+              bottom: 180,
               child: ElevatedButton(
                 onPressed: _startMeasurement,
                 style: ElevatedButton.styleFrom(
@@ -332,7 +248,7 @@ class _MainPageState extends State<MainPage> {
                   shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
                 ),
                 child: Text(
-                  _serialConnection.connected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
+                  controller.isConnected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -377,10 +293,12 @@ class _MainPageState extends State<MainPage> {
                         label: 'Settings',
                       ),
                     ],
-                    currentIndex: _selectedNavViewIndex,
+                    currentIndex: selectedNavIndex,
                     selectedItemColor: const Color(0xFFd4af37),
                     unselectedItemColor: Colors.grey,
-                    onTap: _onItemTapped,
+                    onTap: (index) {
+                      ref.read(selectedNavIndexProvider.notifier).state = index;
+                    },
                   ),
                   Container(
                     width: 128,
@@ -400,4 +318,3 @@ class _MainPageState extends State<MainPage> {
     );
   }
 }
-

@@ -1,0 +1,97 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:final_project/providers/services_providers.dart';
+import 'package:final_project/providers/app_state_providers.dart';
+import 'package:final_project/models/distance_item.dart';
+import 'package:final_project/models/volume_item.dart';
+import 'package:final_project/models/position_3d.dart';
+import 'package:final_project/models/speaker_data.dart';
+
+// Measurement Controller Provider
+final measurementControllerProvider = Provider<MeasurementController>((ref) {
+  return MeasurementController(ref);
+});
+
+class MeasurementController {
+  final Ref ref;
+
+  MeasurementController(this.ref);
+
+  Future<String?> startMeasurement(String ip, int port) async {
+    final mqttService = ref.read(mqttServiceProvider);
+    final serialService = ref.read(serialServiceProvider);
+
+    // Connect to MQTT
+    if (!mqttService.isConnected && !await mqttService.connect(ip, port)) {
+      return "Could not connect to MQTT.";
+    }
+
+    // Set up MQTT callbacks
+    mqttService.onUserPositionReceived = (positionData) {
+      ref.read(userPositionProvider.notifier).state = Position3D.fromJson(positionData);
+    };
+
+    mqttService.onSpeakerPositionReceived = (id, positionData) {
+      final speakers = ref.read(speakersProvider.notifier);
+      speakers.state = {
+        ...speakers.state,
+        id: SpeakerData(id: id, position: Position3D.fromJson(positionData)),
+      };
+    };
+
+    // Set up serial callbacks
+    serialService.onDistanceReceived = (id, distance) {
+      final distanceItems = ref.read(distanceItemsProvider.notifier);
+      final volumeItems = ref.read(volumeItemsProvider.notifier);
+
+      // Send distance via MQTT
+      mqttService.sendDistance('{"id": "$id", "distance": $distance}');
+
+      // Update or add distance item
+      final existingIndex = ref.read(distanceItemsProvider).indexWhere((item) => item.id == id);
+      if (existingIndex != -1) {
+        distanceItems.updateDistance(id, distance);
+      } else {
+        final newItem = DistanceItem(id: id, distance: distance);
+        distanceItems.add(newItem);
+        volumeItems.add(VolumeItem(id: id, volume: 100));
+
+        // Notify MQTT of new speaker
+        if (mqttService.isConnected) {
+          mqttService.sendSpeakerConnectionInformation(id, true);
+        }
+      }
+    };
+
+    // Connect to serial device
+    final devices = await serialService.getAvailableDevices();
+    if (devices.isEmpty) {
+      return "No USB sensor detected.";
+    }
+
+    await serialService.connect(devices.first);
+    return null; // Success
+  }
+
+  void stopMeasurement() {
+    final mqttService = ref.read(mqttServiceProvider);
+    final serialService = ref.read(serialServiceProvider);
+    final distanceItems = ref.read(distanceItemsProvider);
+
+    // Notify MQTT of speaker disconnections
+    for (final item in distanceItems) {
+      if (mqttService.isConnected) {
+        mqttService.sendSpeakerConnectionInformation(item.id, false);
+      }
+    }
+
+    // Clear state
+    ref.read(distanceItemsProvider.notifier).clear();
+
+    // Disconnect services
+    serialService.disconnect();
+  }
+
+  bool get isConnected {
+    return ref.read(serialServiceProvider).isConnected;
+  }
+}
