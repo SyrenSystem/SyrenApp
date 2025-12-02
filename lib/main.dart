@@ -1,5 +1,6 @@
 import 'package:final_project/communication/mqtt.dart';
 import 'package:final_project/serial/serial_base.dart';
+import 'package:final_project/ui/location_view_page.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 
@@ -55,6 +56,8 @@ class _MainPageState extends State<MainPage> {
   final List<VolumeItem> _volumeItems = [];
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
+  Position3D? _userPosition;
+  final Map<String, SpeakerData> _speakers = {};
 
   Future<void> _saveSettings() async {
     final ip = _ipController.text.trim();
@@ -152,6 +155,22 @@ class _MainPageState extends State<MainPage> {
     super.initState();
     _loadSettings();
     _mqttClient = MQTTClient();
+
+    // Set up MQTT callbacks
+    _mqttClient.onUserPositionReceived = (positionData) {
+      setState(() {
+        _userPosition = Position3D.fromJson(positionData);
+      });
+    };
+
+    _mqttClient.onSpeakerPositionReceived = (id, positionData) {
+      setState(() {
+        _speakers[id] = SpeakerData(
+          id: id,
+          position: Position3D.fromJson(positionData),
+        );
+      });
+    };
   }
 
   @override
@@ -172,7 +191,48 @@ class _MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = [
-      // PLAYING PAGE
+      // Location View Page
+      LocationViewPage(
+        userPosition: _userPosition,
+        speakers: _speakers.values.toList(),
+        onStartMeasurement: () async {
+          if (_serialConnection.connected) {
+            List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
+            for (DistanceItem item in toRemoveDistances) {
+              _removeDistanceSensor(item);
+            }
+            _serialConnection.disconnect();
+            toggleSerialConnectionButton();
+            return;
+          }
+
+          String ip = _ipController.text.toString();
+          int? port = int.tryParse(_portController.text);
+          if (ip.isEmpty || port == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+            return;
+          }
+
+          if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Could not connect to MQTT.")));
+            return;
+          }
+
+          final devices = await _serialConnection.getAvailableDevices();
+          if (devices.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("No USB sensor detected.")));
+            return;
+          }
+
+          await _serialConnection.connect(devices.first);
+          toggleSerialConnectionButton();
+        },
+      ),
+
+      // DISTANCE PAGE
       Column(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -316,30 +376,62 @@ class _MainPageState extends State<MainPage> {
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Syren App"),
-        centerTitle: true,
-        backgroundColor: Colors.deepPurple,
-      ),
-      body: pages[_selectedNavViewIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.social_distance),
-            label: 'Distance',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.volume_up_rounded),
-            label: 'Volume',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
+      body: Stack(
+        children: [
+          pages[_selectedNavViewIndex],
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black..withValues(alpha: 0.3),
+                border: Border(
+                  top: BorderSide(
+                    color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  BottomNavigationBar(
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                    items: const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.social_distance),
+                        label: 'Distance',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.volume_up_rounded),
+                        label: 'Volume',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.settings),
+                        label: 'Settings',
+                      ),
+                    ],
+                    currentIndex: _selectedNavViewIndex,
+                    selectedItemColor: const Color(0xFFd4af37),
+                    unselectedItemColor: Colors.grey,
+                    onTap: _onItemTapped,
+                  ),
+                  Container(
+                    width: 128,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade600,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
-        currentIndex: _selectedNavViewIndex,
-        selectedItemColor: Colors.deepPurple,
-        onTap: _onItemTapped,
       ),
     );
   }

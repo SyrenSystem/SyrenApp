@@ -1,12 +1,14 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
 class MQTTClient {
   MqttServerClient? _client;
   bool _connected = false;
+  Function(Map<String, dynamic>)? onUserPositionReceived;
+  Function(String, Map<String, dynamic>)? onSpeakerPositionReceived;
+
   Future<bool> connect(String ip, [int port = 1883]) async {
     if (_connected) {
       return false;
@@ -48,6 +50,20 @@ class MQTTClient {
       _client!.disconnect();
       return false;
     }
+
+    // Set up message received callback
+    _client!.updates!.listen((List<MqttReceivedMessage<MqttMessage>> messages) {
+      for (final message in messages) {
+        final recMess = message.payload as MqttPublishMessage;
+        final payload = MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
+        _handleMessage(message.topic, payload);
+      }
+    });
+
+    // Subscribe to position topics
+    _client!.subscribe('SyrenSystem/SyrenServer/GetUserPosition', MqttQos.atLeastOnce);
+    _client!.subscribe('SyrenSystem/SyrenServer/GetSpeakerPosition', MqttQos.atLeastOnce);
+
     return true;
   }
 
@@ -110,6 +126,24 @@ class MQTTClient {
       return true;
     }
     return false;
+  }
+
+  void _handleMessage(String topic, String payload) {
+    try {
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+
+      if (topic == 'SyrenSystem/SyrenServer/GetUserPosition') {
+        if (data.containsKey('position')) {
+          onUserPositionReceived?.call(data['position']);
+        }
+      } else if (topic == 'SyrenSystem/SyrenServer/GetSpeakerPosition') {
+        if (data.containsKey('id') && data.containsKey('position')) {
+          onSpeakerPositionReceived?.call(data['id'], data['position']);
+        }
+      }
+    } catch (e) {
+      print('Error handling MQTT message: $e');
+    }
   }
 }
 

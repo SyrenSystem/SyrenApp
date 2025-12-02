@@ -254,3 +254,6 @@ google-services.json
 
 .idea
 **/.idea
+
+linux/
+generated_plugin*.*
