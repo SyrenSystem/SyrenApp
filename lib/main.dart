@@ -46,11 +46,7 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> {
-
   int _selectedNavViewIndex = 0;
-  String _displayTextDistance = "Click Start to start sensor measurement.";
-  String _displayTextStartStopSerialButton = "Start";
-  Color _colorStartStopSerialButton = Colors.green;
   late MQTTClient _mqttClient;
   final List<DistanceItem> _distanceItems = [];
   final List<VolumeItem> _volumeItems = [];
@@ -108,47 +104,62 @@ class _MainPageState extends State<MainPage> {
     });
   }
 
-  // initialize the serial connection
-  late final SerialConnection _serialConnection = SerialConnection.create((String message){
+  late final SerialConnection _serialConnection = SerialConnection.create((String message) {
     try {
       Map<String, dynamic> distanceData = jsonDecode(message);
       _mqttClient.sendDistance(message);
       String id = distanceData["id"];
       double distance = (distanceData["distance"] as num).toDouble();
-      print("Distance: ${distanceData['distance']}");
-      setState(() {
-        _displayTextDistance = "${distanceData["id"]}: ${distanceData['distance']}mm";
-      });
+
       final index = _distanceItems.indexWhere((item) => item.id == id);
-      if (index != -1)
-      {
+      if (index != -1) {
         setState(() {
           _distanceItems[index].distance = distance;
         });
+      } else {
+        _addDistanceSensor(DistanceItem(id: id, distance: distance));
       }
-      else
-        {
-          _addDistanceSensor(DistanceItem(id: id, distance: distance));
-        }
-
-    }
-    catch (e)
-    {
-      print(e.toString());
+    } catch (e) {
+      print('Error processing distance data: $e');
     }
   });
 
-  void toggleSerialConnectionButton() {
-    setState(() {
-      if (_serialConnection.connected) {
-        _displayTextStartStopSerialButton = "Stop";
-        _colorStartStopSerialButton = Colors.red;
-      }
-      else {
-        _displayTextStartStopSerialButton = "Start";
-        _colorStartStopSerialButton = Colors.green;
-      }
-    });
+  Future<void> _startMeasurement() async {
+    if (_serialConnection.connected) {
+      _stopMeasurement();
+      return;
+    }
+
+    String ip = _ipController.text.toString();
+    int? port = int.tryParse(_portController.text);
+    if (ip.isEmpty || port == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+      return;
+    }
+
+    if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Could not connect to MQTT.")));
+      return;
+    }
+
+    final devices = await _serialConnection.getAvailableDevices();
+    if (devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No USB sensor detected.")));
+      return;
+    }
+
+    await _serialConnection.connect(devices.first);
+  }
+
+  void _stopMeasurement() {
+    List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
+    for (DistanceItem item in toRemoveDistances) {
+      _removeDistanceSensor(item);
+    }
+    _serialConnection.disconnect();
   }
 
   @override void initState() {
@@ -195,145 +206,68 @@ class _MainPageState extends State<MainPage> {
       LocationViewPage(
         userPosition: _userPosition,
         speakers: _speakers.values.toList(),
-        onStartMeasurement: () async {
-          if (_serialConnection.connected) {
-            List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
-            for (DistanceItem item in toRemoveDistances) {
-              _removeDistanceSensor(item);
-            }
-            _serialConnection.disconnect();
-            toggleSerialConnectionButton();
-            return;
-          }
-
-          String ip = _ipController.text.toString();
-          int? port = int.tryParse(_portController.text);
-          if (ip.isEmpty || port == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Invalid MQTT connection preferences.")));
-            return;
-          }
-
-          if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Could not connect to MQTT.")));
-            return;
-          }
-
-          final devices = await _serialConnection.getAvailableDevices();
-          if (devices.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("No USB sensor detected.")));
-            return;
-          }
-
-          await _serialConnection.connect(devices.first);
-          toggleSerialConnectionButton();
-        },
+        onStartMeasurement: _startMeasurement,
       ),
 
-      // DISTANCE PAGE
-      Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              children: [
-                ElevatedButton(
-                    child: Text(
-                      _displayTextStartStopSerialButton,
-                      style: TextStyle(color: _colorStartStopSerialButton),
+      // Distance Debug Page
+      Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView.builder(
+          itemCount: _distanceItems.length,
+          itemBuilder: (context, index) {
+            final item = _distanceItems[index];
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.speaker),
+                title: Text("ID: ${item.id}"),
+                subtitle: Text("Distance: ${item.distance.toStringAsFixed(2)}mm"),
+              ),
+            );
+          },
+        ),
+      ),
+
+      // Volume Control Page
+      Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView.builder(
+          itemCount: _volumeItems.length,
+          itemBuilder: (context, index) {
+            final item = _volumeItems[index];
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Speaker ${item.id}",
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    onPressed: () async {
-                      if (_serialConnection.connected)
-                        {
-                          List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
-                          for (DistanceItem item in toRemoveDistances)
-                          {
-                            _removeDistanceSensor(item);
-                          }
-                          _serialConnection.disconnect();
-                          toggleSerialConnectionButton();
-                          return;
-                        }
-
-                      String ip = _ipController.text.toString();
-                      int? port = int.tryParse(_portController.text);
-                      if (ip.isEmpty || port == null)
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Invalid MQTT connection preferences.")));
-                          return;
-                        }
-
-                      if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port))
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Could not connect to MQTT.")));
-                          return;
-                        }
-
-                      final devices = await _serialConnection.getAvailableDevices();
-                      if (devices.isEmpty)
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("No USB sensor detected.")));
-                          return;
-                        }
-
-                      await _serialConnection.connect(devices.first);
-                      toggleSerialConnectionButton();
-                    },
-                  ),
-                Text(_displayTextDistance),
-                // Container(
-                //   height: 200,
-                //   color: Colors.blue
-                // )
-                Container(
-                  height: 300,
-                  color: Colors.blue,
-                  child: ListView.builder(
-                  itemCount: _distanceItems.length,
-                  itemBuilder: (context, index) {
-                  final item = _distanceItems[index];
-                  return ListTile(
-                  leading: Text("ID: ${item.id}"),
-                  title: Text("Distance: ${item.distance.toStringAsFixed(2)}mm")
-                  );
-                })
-                )
-              ],
-            ),
-          ),
-        ],
+                    Slider(
+                      value: item.volume.toDouble(),
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      label: item.volume.toString(),
+                      onChanged: (double value) {
+                        setState(() {
+                          item.volume = value.toInt();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
 
-      // page volume control
-      ListView.builder(
-        itemCount: _volumeItems.length,
-        itemBuilder: (context, index) {
-        final item = _volumeItems[index];
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(item.id),
-              Slider(
-                  value: item.volume.toDouble(),
-                  min: 0,
-                max: 100,
-                divisions: 100,
-                label:(item.volume.toString()),
-                onChanged: (double value) {
-                    print("volume changed:");
-              })
-            ],
-    );
-    }
-      ),
-
-
-      // page settings
+      // Settings Page
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -385,7 +319,7 @@ class _MainPageState extends State<MainPage> {
             bottom: 0,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black..withValues(alpha: 0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 border: Border(
                   top: BorderSide(
                     color: const Color(0xFFd4af37).withValues(alpha: 0.2),

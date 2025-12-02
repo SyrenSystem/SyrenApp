@@ -130,7 +130,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   elevation: 8,
-                  shadowColor: const Color(0xFFd4af37)..withValues(alpha: 0.3),
+                  shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
                 ),
                 child: const Text(
                   'START MEASUREMENT',
