@@ -206,7 +206,6 @@ class _MainPageState extends State<MainPage> {
       LocationViewPage(
         userPosition: _userPosition,
         speakers: _speakers.values.toList(),
-        onStartMeasurement: _startMeasurement,
       ),
 
       // Distance Debug Page
@@ -313,6 +312,36 @@ class _MainPageState extends State<MainPage> {
       body: Stack(
         children: [
           pages[_selectedNavViewIndex],
+
+          // Start Measurement Button - hovering over location view
+          if (_selectedNavViewIndex == 0)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 180, // Position above the navigation bar
+              child: ElevatedButton(
+                onPressed: _startMeasurement,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFd4af37),
+                  foregroundColor: const Color(0xFF0a101f),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 8,
+                  shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                ),
+                child: Text(
+                  _serialConnection.connected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ),
+            ),
+
           Positioned(
             left: 0,
             right: 0,
@@ -333,6 +362,7 @@ class _MainPageState extends State<MainPage> {
                   BottomNavigationBar(
                     backgroundColor: Colors.transparent,
                     elevation: 0,
+                    type: BottomNavigationBarType.fixed,
                     items: const [
                       BottomNavigationBarItem(
                         icon: Icon(Icons.social_distance),

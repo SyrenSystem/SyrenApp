@@ -51,7 +51,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
         children: [
           // Header
           Padding(
-            padding: const EdgeInsets.only(top: 40, bottom: 16),
+            padding: const EdgeInsets.only(top: 60, bottom: 16),
             child: Stack(
               children: [
                 Center(
@@ -64,7 +64,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
                       ],
                     ).createShader(bounds),
                     child: const Text(
-                      'SYREN',
+                      'SYREN APP',
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
