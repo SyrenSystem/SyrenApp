@@ -139,7 +139,7 @@ class MqttService {
     final String topic = "SyrenSystem/SyrenApp/SetSpeakerVolume";
     final toSendData = {
       "id": identifier,
-      "value": value.toInt()
+      "volume": value.toInt()
     };
     publish(topic, jsonEncode(toSendData));
   }
