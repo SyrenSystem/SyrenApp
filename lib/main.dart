@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:final_project/ui/location_view_page.dart';
+import 'package:final_project/ui/settings_page_widget.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
+import 'package:final_project/providers/settings_provider.dart';
 
 void main() {
   runApp(const ProviderScope(child: MyApp()));
@@ -30,56 +31,9 @@ class MainPage extends ConsumerStatefulWidget {
 }
 
 class _MainPageState extends ConsumerState<MainPage> {
-  final TextEditingController _ipController = TextEditingController();
-  final TextEditingController _portController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
-  }
-
-  @override
-  void dispose() {
-    _ipController.dispose();
-    _portController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveSettings() async {
-    final ip = _ipController.text.trim();
-    final port = int.tryParse(_portController.text.trim());
-
-    if (ip.isEmpty || port == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please enter a valid IP and port")),
-        );
-      }
-      return;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ip', ip);
-    await prefs.setInt('port', port);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Settings saved")),
-      );
-    }
-  }
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _ipController.text = prefs.getString('ip') ?? '';
-      _portController.text = prefs.getInt('port')?.toString() ?? '';
-    });
-  }
-
   Future<void> _startMeasurement() async {
     final controller = ref.read(measurementControllerProvider);
+    final settings = ref.read(settingsProvider);
 
     if (controller.isConnected) {
       controller.stopMeasurement();
@@ -87,18 +41,15 @@ class _MainPageState extends ConsumerState<MainPage> {
       return;
     }
 
-    final ip = _ipController.text.toString();
-    final port = int.tryParse(_portController.text);
-
-    if (ip.isEmpty || port == null) {
+    if (settings.ip.isEmpty || settings.port <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid MQTT connection preferences.")));
+          const SnackBar(content: Text("Please configure MQTT settings first.")));
       }
       return;
     }
 
-    final error = await controller.startMeasurement(ip, port);
+    final error = await controller.startMeasurement(settings.ip, settings.port);
     if (error != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error)));
@@ -117,28 +68,10 @@ class _MainPageState extends ConsumerState<MainPage> {
     final controller = ref.read(measurementControllerProvider);
 
     final List<Widget> pages = [
-      // Location View Page
+      // Distance Page (Location View)
       LocationViewPage(
         userPosition: userPosition,
         speakers: speakers.values.toList(),
-      ),
-
-      // Distance Debug Page
-      Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView.builder(
-          itemCount: distanceItems.length,
-          itemBuilder: (context, index) {
-            final item = distanceItems[index];
-            return Card(
-              child: ListTile(
-                leading: const Icon(Icons.speaker),
-                title: Text("ID: ${item.id}"),
-                subtitle: Text("Distance: ${item.distance.toStringAsFixed(2)}mm"),
-              ),
-            );
-          },
-        ),
       ),
 
       // Volume Control Page
@@ -183,45 +116,7 @@ class _MainPageState extends ConsumerState<MainPage> {
       ),
 
       // Settings Page
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Connection Settings",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _ipController,
-              decoration: const InputDecoration(
-                labelText: "IP Address",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              decoration: const InputDecoration(
-                labelText: "Port",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _saveSettings,
-              child: const Text("Save"),
-            ),
-          ],
-        ),
-      )
+      const SettingsPageWidget(),
     ];
 
     return Scaffold(
