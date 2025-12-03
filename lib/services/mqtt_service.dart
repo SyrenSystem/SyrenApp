@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/cupertino.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
@@ -131,6 +132,16 @@ class MqttService {
       return true;
     }
     return false;
+  }
+
+  sendVolumeUpdate(String identifier, double value)
+  {
+    final String topic = "SyrenSystem/SyrenApp/SpeakerVolumeUpdate";
+    final toSendData = {
+      "id": identifier,
+      "value": value.toInt()
+    };
+    publish(topic, jsonEncode(toSendData));
   }
 
   void _handleMessage(String topic, String payload) {
