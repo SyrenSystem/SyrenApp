@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
+import '../models/speaker.dart';
+
 class MqttService {
   MqttServerClient? _client;
   bool _connected = false;
@@ -85,16 +87,26 @@ class MqttService {
   bool sendDistance(String rawDistanceData,
       [String topic = "SyrenSystem/SyrenApp/UpdateDistance"]) {
     Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
-    final dataToSend = {
-        "distances": [
-          {
-            "id": distanceData["id"],
-            "distance": distanceData['distance']
-          }
-        ]
-    };
+    final dataToSend =
+    {
+      "id": distanceData["id"],
+      "distance": distanceData['distance']
+    }
+    ;
 
     final jsonToSend = jsonEncode(dataToSend);
+    if (_connected) {
+      publish(topic, jsonToSend);
+      return true;
+    }
+    return false;
+  }
+
+  bool connectSpeaker(String speakerMacAddress) {
+    String topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
+
+    final toSendData = new Speaker(id: speakerMacAddress);
+    final jsonToSend = jsonEncode(toSendData);
     if (_connected) {
       publish(topic, jsonToSend);
       return true;

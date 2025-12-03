@@ -10,7 +10,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     state = SettingsState(
-      ip: prefs.getString('ip') ?? '',
+      ip: prefs.getString('ip') ?? '192.168.2.51',
       port: prefs.getInt('port') ?? 1883,
     );
   }
