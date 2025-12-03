@@ -86,8 +86,12 @@ class MqttService {
       [String topic = "SyrenSystem/SyrenApp/UpdateDistance"]) {
     Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
     final dataToSend = {
-      "id": distanceData["id"],
-      "distance": distanceData['distance']
+        "distances": [
+          {
+            "id": distanceData["id"],
+            "distance": distanceData['distance']
+          }
+        ]
     };
 
     final jsonToSend = jsonEncode(dataToSend);
