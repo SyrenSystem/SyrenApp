@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/speaker_data.dart';
+import 'package:final_project/ui/connect_speaker_page.dart';
 import 'dart:math' as math;
 
 class LocationViewPage extends StatefulWidget {
@@ -65,10 +66,16 @@ class _LocationViewPageState extends State<LocationViewPage> {
                       ),
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.query_stats),
+                      icon: const Icon(Icons.add),
                       color: const Color(0xFFf0e68c),
                       onPressed: () {
-
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ConnectSpeakerPage(),
+                            fullscreenDialog: true,
+                          ),
+                        );
                       },
                     ),
                   ),

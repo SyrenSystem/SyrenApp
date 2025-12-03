@@ -105,7 +105,9 @@ class MqttService {
   bool connectSpeaker(String speakerMacAddress) {
     String topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
 
-    final toSendData = new Speaker(id: speakerMacAddress);
+    final toSendData = {
+      "id": speakerMacAddress
+    };
     final jsonToSend = jsonEncode(toSendData);
     if (_connected) {
       publish(topic, jsonToSend);
