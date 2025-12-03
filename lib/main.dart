@@ -1,3 +1,4 @@
+import 'package:final_project/ui/volume_control_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
@@ -75,45 +76,47 @@ class _MainPageState extends ConsumerState<MainPage> {
       ),
 
       // Volume Control Page
-      Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView.builder(
-          itemCount: volumeItems.length,
-          itemBuilder: (context, index) {
-            final item = volumeItems[index];
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Speaker ${item.id}",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Slider(
-                      value: item.volume.toDouble(),
-                      min: 0,
-                      max: 100,
-                      divisions: 100,
-                      label: item.volume.toString(),
-                      onChanged: (double value) {
-                        ref.read(volumeItemsProvider.notifier).updateVolume(
-                              item.id,
-                              value.toInt(),
-                            );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+      VolumeControlPage(),
+
+      // Padding(
+      //   padding: const EdgeInsets.all(16.0),
+      //   child: ListView.builder(
+      //     itemCount: volumeItems.length,
+      //     itemBuilder: (context, index) {
+      //       final item = volumeItems[index];
+      //       return Card(
+      //         child: Padding(
+      //           padding: const EdgeInsets.all(16.0),
+      //           child: Column(
+      //             crossAxisAlignment: CrossAxisAlignment.start,
+      //             children: [
+      //               Text(
+      //                 "Speaker ${item.id}",
+      //                 style: const TextStyle(
+      //                   fontSize: 16,
+      //                   fontWeight: FontWeight.bold,
+      //                 ),
+      //               ),
+      //               Slider(
+      //                 value: item.volume.toDouble(),
+      //                 min: 0,
+      //                 max: 100,
+      //                 divisions: 100,
+      //                 label: item.volume.toString(),
+      //                 onChanged: (double value) {
+      //                   ref.read(volumeItemsProvider.notifier).updateVolume(
+      //                         item.id,
+      //                         value.toInt(),
+      //                       );
+      //                 },
+      //               ),
+      //             ],
+      //           ),
+      //         ),
+      //       );
+      //     },
+      //   ),
+      // ),
 
       // Settings Page
       const SettingsPageWidget(),
