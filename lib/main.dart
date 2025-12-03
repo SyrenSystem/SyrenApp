@@ -28,7 +28,9 @@ class MainPage extends ConsumerStatefulWidget {
   const MainPage({super.key});
 
   @override
-  ConsumerState<MainPage> createState() => _MainPageState();
+  ConsumerState<MainPage> createState(){
+    return _MainPageState();
+  }
 }
 
 class _MainPageState extends ConsumerState<MainPage> {
@@ -67,6 +69,9 @@ class _MainPageState extends ConsumerState<MainPage> {
     final userPosition = ref.watch(userPositionProvider);
     final speakers = ref.watch(speakersProvider);
     final controller = ref.read(measurementControllerProvider);
+
+    // workaround: ensure that settings are available for ui actions
+    final dummy = ref.read(settingsProvider);
 
     final List<Widget> pages = [
       // Distance Page (Location View)
