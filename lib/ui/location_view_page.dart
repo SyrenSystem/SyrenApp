@@ -22,7 +22,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF0a101f),
+        color: Color(0xFF0d121c),
       ),
       child: Column(
         children: [

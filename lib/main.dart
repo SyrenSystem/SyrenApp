@@ -234,7 +234,7 @@ class _MainPageState extends ConsumerState<MainPage> {
             Positioned(
               left: 24,
               right: 24,
-              bottom: 180,
+              bottom: 140,
               child: ElevatedButton(
                 onPressed: _startMeasurement,
                 style: ElevatedButton.styleFrom(
@@ -259,61 +259,90 @@ class _MainPageState extends ConsumerState<MainPage> {
             ),
 
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
+            left: 24,
+            right: 24,
+            bottom: 24,
             child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.3),
-                border: Border(
-                  top: BorderSide(
-                    color: const Color(0xFFd4af37).withValues(alpha: 0.2),
-                    width: 1,
-                  ),
-                ),
+                color: const Color(0xFF090c13),
+                borderRadius: BorderRadius.circular(20),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  BottomNavigationBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    type: BottomNavigationBarType.fixed,
-                    items: const [
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.social_distance),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildNavItem(
+                        icon: Icons.social_distance,
                         label: 'Distance',
+                        index: 0,
+                        isSelected: selectedNavIndex == 0,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 0;
+                        },
                       ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.volume_up_rounded),
+                      _buildNavItem(
+                        icon: Icons.volume_up_rounded,
                         label: 'Volume',
+                        index: 1,
+                        isSelected: selectedNavIndex == 1,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 1;
+                        },
                       ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.settings),
+                      _buildNavItem(
+                        icon: Icons.settings,
                         label: 'Settings',
+                        index: 2,
+                        isSelected: selectedNavIndex == 2,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 2;
+                        },
                       ),
                     ],
-                    currentIndex: selectedNavIndex,
-                    selectedItemColor: const Color(0xFFd4af37),
-                    unselectedItemColor: Colors.grey,
-                    onTap: (index) {
-                      ref.read(selectedNavIndexProvider.notifier).state = index;
-                    },
-                  ),
-                  Container(
-                    width: 128,
-                    height: 4,
-                    margin: const EdgeInsets.only(top: 12, bottom: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade600,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
                   ),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+              size: 32,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
