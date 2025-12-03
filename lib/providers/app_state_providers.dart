@@ -48,7 +48,10 @@ class VolumeItemsNotifier extends StateNotifier<List<VolumeItem>> {
   VolumeItemsNotifier() : super([]);
 
   void add(VolumeItem item) {
-    state = [...state, item];
+    // only add non-existing elements
+    if (!state.any((volumeItem) => volumeItem.id == item.id)) {
+      state = [...state, item];
+    }
   }
 
   void updateVolume(String id, int volume) {

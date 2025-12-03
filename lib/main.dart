@@ -83,46 +83,6 @@ class _MainPageState extends ConsumerState<MainPage> {
       // Volume Control Page
       VolumeControlPage(),
 
-      // Padding(
-      //   padding: const EdgeInsets.all(16.0),
-      //   child: ListView.builder(
-      //     itemCount: volumeItems.length,
-      //     itemBuilder: (context, index) {
-      //       final item = volumeItems[index];
-      //       return Card(
-      //         child: Padding(
-      //           padding: const EdgeInsets.all(16.0),
-      //           child: Column(
-      //             crossAxisAlignment: CrossAxisAlignment.start,
-      //             children: [
-      //               Text(
-      //                 "Speaker ${item.id}",
-      //                 style: const TextStyle(
-      //                   fontSize: 16,
-      //                   fontWeight: FontWeight.bold,
-      //                 ),
-      //               ),
-      //               Slider(
-      //                 value: item.volume.toDouble(),
-      //                 min: 0,
-      //                 max: 100,
-      //                 divisions: 100,
-      //                 label: item.volume.toString(),
-      //                 onChanged: (double value) {
-      //                   ref.read(volumeItemsProvider.notifier).updateVolume(
-      //                         item.id,
-      //                         value.toInt(),
-      //                       );
-      //                 },
-      //               ),
-      //             ],
-      //           ),
-      //         ),
-      //       );
-      //     },
-      //   ),
-      // ),
-
       // Settings Page
       const SettingsPageWidget(),
     ];

@@ -136,7 +136,7 @@ class MqttService {
 
   sendVolumeUpdate(String identifier, double value)
   {
-    final String topic = "SyrenSystem/SyrenApp/SpeakerVolumeUpdate";
+    final String topic = "SyrenSystem/SyrenApp/SetSpeakerVolume";
     final toSendData = {
       "id": identifier,
       "value": value.toInt()
