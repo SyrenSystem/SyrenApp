@@ -68,7 +68,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
                       icon: const Icon(Icons.query_stats),
                       color: const Color(0xFFf0e68c),
                       onPressed: () {
-                        // Stats action
+
                       },
                     ),
                   ),

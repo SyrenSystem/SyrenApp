@@ -13,15 +13,26 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    // Load initial values
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final settings = ref.read(settingsProvider);
+  void _updateControllers(SettingsState settings) {
+    if (_ipController.text != settings.ip) {
       _ipController.text = settings.ip;
+    }
+    if (_portController.text != settings.port.toString()) {
       _portController.text = settings.port.toString();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Watch settings and update controllers when they change
+    final settings = ref.watch(settingsProvider);
+
+    // Update controllers immediately when settings change
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateControllers(settings);
     });
+
+    return _buildContent();
   }
 
   @override
@@ -63,8 +74,7 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildContent() {
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFF0a101f),
