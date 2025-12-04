@@ -43,22 +43,16 @@ class MeasurementController {
       final distanceItems = ref.read(distanceItemsProvider.notifier);
       final volumeItems = ref.read(volumeItemsProvider.notifier);
 
-      // Send distance via MQTT
-      mqttService.sendDistance('{"id": "$id", "distance": $distance}');
-
       // Update or add distance item
       final existingIndex = ref.read(distanceItemsProvider).indexWhere((item) => item.id == id);
       if (existingIndex != -1) {
+        // Send distance via MQTT
+        mqttService.sendDistance('{"id": "$id", "distance": $distance}');
         distanceItems.updateDistance(id, distance);
       } else {
         final newItem = DistanceItem(id: id, distance: distance);
         distanceItems.add(newItem);
         volumeItems.add(VolumeItem(id: id, volume: 100));
-
-        // Notify MQTT of new speaker
-        if (mqttService.isConnected) {
-          mqttService.sendSpeakerConnectionInformation(id, true);
-        }
       }
     };
 
