@@ -98,26 +98,66 @@ class _MainPageState extends ConsumerState<MainPage> {
               left: 24,
               right: 24,
               bottom: 140,
-              child: ElevatedButton(
-                onPressed: _startMeasurement,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFd4af37),
-                  foregroundColor: const Color(0xFF0a101f),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: _startMeasurement,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFd4af37),
+                      foregroundColor: const Color(0xFF0a101f),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 8,
+                      shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                    ),
+                    child: Text(
+                      controller.isConnected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
                   ),
-                  elevation: 8,
-                  shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
-                ),
-                child: Text(
-                  controller.isConnected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
+
+                  const SizedBox(height: 12), // spacing between button
+
+                  ExpansionTile(
+                    title: const Text(
+                      "Distances",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.yellow, // yellow title text
+                      ),
+                    ),
+                    children: [
+                      Container(
+                        height: 300,
+                        color: Colors.black, // black background
+                        child: ListView.builder(
+                          itemCount: distanceItems.length,
+                          itemBuilder: (context, index) {
+                            final item = distanceItems[index];
+                            return ListTile(
+                              leading: Text(
+                                "ID: ${item.id}; label: ${item.label}",
+                                style: const TextStyle(color: Colors.yellow), // yellow text
+                              ),
+                              title: Text(
+                                "Distance: ${item.distance.toStringAsFixed(2)}mm",
+                                style: const TextStyle(color: Colors.yellow), // yellow text
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                ],
               ),
             ),
 
