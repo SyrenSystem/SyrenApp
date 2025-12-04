@@ -1,3 +1,4 @@
+import 'package:final_project/providers/app_state_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/providers/settings_provider.dart';
@@ -12,6 +13,7 @@ class SettingsPageWidget extends ConsumerStatefulWidget {
 class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
+  late final _distanceItems = ref.read(distanceItemsProvider);
 
   void _updateControllers(SettingsState settings) {
     if (_ipController.text != settings.ip) {
@@ -141,6 +143,35 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
               ),
               const SizedBox(height: 32),
 
+              // List of sensors:
+              Container(
+                height: 200,
+                color: Colors.black, // black background
+                child: ListView.builder(
+                  itemCount: _distanceItems.length,
+                  itemBuilder: (context, index) {
+                    final item = _distanceItems[index];
+                    return ListTile(
+                      leading: Text(
+                        "Sensor: ${item.id}",
+                        style: const TextStyle(color: Colors.yellow), // yellow text
+                      ),
+                      title: _buildInputField(
+                        controller: TextEditingController(),
+                        label: 'Label',
+                        hint: item.label,
+                        icon: Icons.label,
+                        keyboardType: TextInputType.text,
+                        onChanged: (value) {
+                          item.label = value.toString();
+                        }
+                      ),
+
+                    );
+                  },
+                ),
+              ),
+
               // Save Button
               SizedBox(
                 width: double.infinity,
@@ -179,6 +210,7 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
     required String hint,
     required IconData icon,
     required TextInputType keyboardType,
+    ValueChanged<String>? onChanged
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -190,6 +222,7 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
         ),
       ),
       child: TextField(
+        onChanged: onChanged,
         controller: controller,
         keyboardType: keyboardType,
         style: const TextStyle(

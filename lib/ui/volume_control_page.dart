@@ -57,7 +57,7 @@ class _VolumeControlPage extends ConsumerState<VolumeControlPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Speaker ${item.id}",
+                                "Speaker ${item.id}: ${distanceItems.firstWhere((distanceItem) => distanceItem.id == item.id).label}",
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
