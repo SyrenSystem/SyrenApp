@@ -50,7 +50,7 @@ class MeasurementController {
         mqttService.sendDistance('{"id": "$id", "distance": $distance}');
         distanceItems.updateDistance(id, distance);
       } else {
-        final newItem = DistanceItem(id: id, distance: distance);
+        final newItem = DistanceItem(id: id, distance: distance, active: true);
         distanceItems.add(newItem);
         volumeItems.add(VolumeItem(id: id, volume: 100));
       }
