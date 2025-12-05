@@ -6,9 +6,16 @@ import 'package:final_project/ui/settings_page_widget.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/providers/settings_provider.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'models/distance_item.dart';
 
-void main() {
-  runApp(const ProviderScope(child: MyApp()));
+void main()  async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  Hive.registerAdapter(DistanceItemAdapter());
+  await Hive.openBox<DistanceItem>('distance_items');
+  runApp(const ProviderScope(
+      child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -65,7 +72,6 @@ class _MainPageState extends ConsumerState<MainPage> {
   Widget build(BuildContext context) {
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
     final distanceItems = ref.watch(distanceItemsProvider);
-    final volumeItems = ref.watch(volumeItemsProvider);
     final userPosition = ref.watch(userPositionProvider);
     final speakers = ref.watch(speakersProvider);
     final controller = ref.read(measurementControllerProvider);

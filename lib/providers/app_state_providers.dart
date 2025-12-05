@@ -1,16 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/models/distance_item.dart';
-import 'package:final_project/models/volume_item.dart';
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/speaker_data.dart';
+import 'package:hive/hive.dart';
 
 // State providers
 final distanceItemsProvider = StateNotifierProvider<DistanceItemsNotifier, List<DistanceItem>>((ref) {
-  return DistanceItemsNotifier();
-});
-
-final volumeItemsProvider = StateNotifierProvider<VolumeItemsNotifier, List<VolumeItem>>((ref) {
-  return VolumeItemsNotifier();
+  final box = Hive.box<DistanceItem>("distance_items");
+  return DistanceItemsNotifier(box);
 });
 
 final userPositionProvider = StateProvider<Position3D?>((ref) => null);
@@ -21,48 +18,52 @@ final selectedNavIndexProvider = StateProvider<int>((ref) => 0);
 
 // State Notifiers
 class DistanceItemsNotifier extends StateNotifier<List<DistanceItem>> {
-  DistanceItemsNotifier() : super([]);
+  final Box<DistanceItem> _box;
+
+  DistanceItemsNotifier(this._box) : super(_box.values.where((it) => it.active).toList());
 
   void add(DistanceItem item) {
-    state = [...state, item];
+    if (_box.values.any((distanceItem) => item.id == distanceItem.id)) {
+      updateDistance(item.id, item.distance);
+    }
+    else
+      {
+        _box.put(item.id, item);
+        state = _box.values.where((it) => it.active).toList();
+      }
   }
 
+  void setInactive(DistanceItem item) {
+    item.active = false;
+    state = _box.values.where((it) => it.active).toList();
+  }
+  
   void remove(DistanceItem item) {
-    state = state.where((i) => i.id != item.id).toList();
+    _box.delete(item.id);
+    state = _box.values.where((it) => it.active).toList();
   }
 
   void updateDistance(String id, double distance) {
-    final index = state.indexWhere((item) => item.id == id);
-    if (index != -1) {
-      state[index].distance = distance;
-      state = [...state]; // Trigger rebuild
+    final item = _box.get(id);
+    if (item != null) {
+      if (!item.active) {
+          item.active = true;
+        }
+      item.distance = distance;
+      state = _box.values.where((it) => it.active).toList();
     }
   }
 
   void clear() {
+    _box.clear();
     state = [];
   }
-}
 
-class VolumeItemsNotifier extends StateNotifier<List<VolumeItem>> {
-  VolumeItemsNotifier() : super([]);
-
-  void add(VolumeItem item) {
-    // only add non-existing elements
-    if (!state.any((volumeItem) => volumeItem.id == item.id)) {
-      state = [...state, item];
-    }
-  }
-
-  void updateVolume(String id, int volume) {
+  void updateVolume(String id, double volume) {
     final index = state.indexWhere((item) => item.id == id);
     if (index != -1) {
       state[index].volume = volume;
       state = [...state]; // Trigger rebuild
     }
-  }
-
-  void clear() {
-    state = [];
   }
 }

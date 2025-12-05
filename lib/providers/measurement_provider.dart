@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/models/distance_item.dart';
-import 'package:final_project/models/volume_item.dart';
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/speaker_data.dart';
 
@@ -41,7 +40,6 @@ class MeasurementController {
     // Set up serial callbacks
     serialService.onDistanceReceived = (id, distance) {
       final distanceItems = ref.read(distanceItemsProvider.notifier);
-      final volumeItems = ref.read(volumeItemsProvider.notifier);
 
       // Update or add distance item
       final existingIndex = ref.read(distanceItemsProvider).indexWhere((item) => item.id == id);
@@ -50,9 +48,8 @@ class MeasurementController {
         mqttService.sendDistance('{"id": "$id", "distance": $distance}');
         distanceItems.updateDistance(id, distance);
       } else {
-        final newItem = DistanceItem(id: id, distance: distance);
+        final newItem = DistanceItem(id: id, distance: distance, active: true);
         distanceItems.add(newItem);
-        volumeItems.add(VolumeItem(id: id, volume: 100));
       }
     };
 
@@ -71,15 +68,16 @@ class MeasurementController {
     final serialService = ref.read(serialServiceProvider);
     final distanceItems = ref.read(distanceItemsProvider);
 
-    // Notify MQTT of speaker disconnections
+    // Notify MQTT of speaker and set items inactive
     for (final item in distanceItems) {
       if (mqttService.isConnected) {
         mqttService.sendSpeakerConnectionInformation(item.id, false);
       }
+      ref.read(distanceItemsProvider.notifier).setInactive(item);
     }
 
     // Clear state
-    ref.read(distanceItemsProvider.notifier).clear();
+    // ref.read(distanceItemsProvider.notifier).clear();
 
     // Disconnect services
     serialService.disconnect();
