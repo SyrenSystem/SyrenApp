@@ -124,43 +124,43 @@ class LocationPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // World-space bounds in X/Z (floor plane)
+    // World-space bounds in X/Y (floor plane)
     double minX = 0, maxX = 300;
-    double minZ = 0, maxZ = 300;
+    double minY = 0, maxY = 300;
 
     if (speakers.isNotEmpty) {
       // Base bounds on speakers
       minX = speakers.map((s) => s.position.x).reduce(math.min);
       maxX = speakers.map((s) => s.position.x).reduce(math.max);
-      minZ = speakers.map((s) => s.position.z).reduce(math.min);
-      maxZ = speakers.map((s) => s.position.z).reduce(math.max);
+      minY = speakers.map((s) => s.position.y).reduce(math.min);
+      maxY = speakers.map((s) => s.position.y).reduce(math.max);
 
       // Include user position in bounds if present
       if (userPosition != null) {
         minX = math.min(minX, userPosition!.x);
         maxX = math.max(maxX, userPosition!.x);
-        minZ = math.min(minZ, userPosition!.z);
-        maxZ = math.max(maxZ, userPosition!.z);
+        minY = math.min(minY, userPosition!.y);
+        maxY = math.max(maxY, userPosition!.y);
       }
 
       // Compute world width/height before padding, avoid degenerate size
       var worldWidth = maxX - minX;
-      var worldHeight = maxZ - minZ;
+      var worldHeight = maxY - minY;
       if (worldWidth == 0) worldWidth = 1;
       if (worldHeight == 0) worldHeight = 1;
 
       // Add padding in world space
       final paddingX = worldWidth * 0.2;
-      final paddingZ = worldHeight * 0.2;
+      final paddingY = worldHeight * 0.2;
       minX -= paddingX;
       maxX += paddingX;
-      minZ -= paddingZ;
-      maxZ += paddingZ;
+      minY -= paddingY;
+      maxY += paddingY;
     }
 
     // Recompute world size after padding
     var worldWidth = maxX - minX;
-    var worldHeight = maxZ - minZ;
+    var worldHeight = maxY - minY;
     if (worldWidth <= 0) worldWidth = 1;
     if (worldHeight <= 0) worldHeight = 1;
 
@@ -174,12 +174,12 @@ class LocationPainter extends CustomPainter {
     final offsetX = (size.width - worldWidth * scale) / 2;
     final offsetY = (size.height - worldHeight * scale) / 2;
 
-    // Convert 3D position (X/Z plane) to 2D screen coordinates
+    // Convert 3D position (X/Y plane) to 2D screen coordinates
     Offset toScreen(Position3D pos) {
       final x = offsetX + (pos.x - minX) * scale;
 
-      // Flip vertically: larger Z goes "up" on the screen
-      final y = size.height - (offsetY + (pos.z - minZ) * scale);
+      // Flip vertically: larger Y goes "up" on the screen
+      final y = size.height - (offsetY + (pos.y - minY) * scale);
 
       return Offset(x, y);
     }
@@ -203,16 +203,13 @@ class LocationPainter extends CustomPainter {
       final speaker = speakers[i];
       final offset = toScreen(speaker.position);
 
-      // Speaker icon circle background
       final bgPaint = Paint()
         ..color = const Color(0xFFd4af37)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(offset, 20, bgPaint);
 
-      // Draw speaker icon
       _drawSpeakerIcon(canvas, offset);
 
-      // Draw label
       final textPainter = TextPainter(
         text: TextSpan(
           text: 'Speaker ${i + 1}',
@@ -235,16 +232,15 @@ class LocationPainter extends CustomPainter {
     if (userPosition != null) {
       final userOffset = toScreen(userPosition!);
 
-      // Glow effect
       final glowPaint = Paint()
         ..color = const Color(0xFFd4af37).withValues(alpha: 0.1)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
       canvas.drawCircle(userOffset, 32, glowPaint);
 
-      // User icon
       _drawPersonIcon(canvas, userOffset);
     }
   }
+
 
 
   void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
