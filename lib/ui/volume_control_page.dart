@@ -1,11 +1,9 @@
 import 'package:final_project/models/distance_item.dart';
-import 'package:final_project/models/volume_item.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mqtt_client/mqtt_server_client.dart';
 
 class VolumeControlPage extends ConsumerStatefulWidget {
   const VolumeControlPage({super.key});
@@ -17,7 +15,6 @@ class VolumeControlPage extends ConsumerStatefulWidget {
 
 class _VolumeControlPage extends ConsumerState<VolumeControlPage> {
   late List<DistanceItem> distanceItems = ref.read(distanceItemsProvider);
-  late List<VolumeItem> volumeItems = ref.read(volumeItemsProvider);
   late final mqttClient = ref.read(mqttServiceProvider);
 
   @override
@@ -47,9 +44,9 @@ class _VolumeControlPage extends ConsumerState<VolumeControlPage> {
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: ListView.builder(
-                    itemCount: volumeItems.length,
+                    itemCount: distanceItems.length,
                     itemBuilder: (context, index) {
-                      final item = volumeItems[index];
+                      final item = distanceItems[index];
                       return Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
@@ -69,10 +66,11 @@ class _VolumeControlPage extends ConsumerState<VolumeControlPage> {
                                 max: 100,
                                 divisions: 100,
                                 label: item.volume.toString(),
-                                onChanged: (double value) {
-
-                                  ref.read(volumeItemsProvider.notifier).updateVolume(item.id, value.toInt());
+                                onChanged: (double value) async {
+                                  ref.read(distanceItemsProvider.notifier).updateVolume(item.id, value);
                                   mqttClient.sendVolumeUpdate(item.id, value);
+                                  item.volume = value;
+                                  await item.save();
                                 },
                               ),
                             ],

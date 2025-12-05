@@ -14,7 +14,8 @@ void main()  async {
   await Hive.initFlutter();
   Hive.registerAdapter(DistanceItemAdapter());
   await Hive.openBox<DistanceItem>('distance_items');
-  runApp(const ProviderScope(child: MyApp()));
+  runApp(const ProviderScope(
+      child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -71,7 +72,6 @@ class _MainPageState extends ConsumerState<MainPage> {
   Widget build(BuildContext context) {
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
     final distanceItems = ref.watch(distanceItemsProvider);
-    final volumeItems = ref.watch(volumeItemsProvider);
     final userPosition = ref.watch(userPositionProvider);
     final speakers = ref.watch(speakersProvider);
     final controller = ref.read(measurementControllerProvider);

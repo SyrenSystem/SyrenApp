@@ -162,8 +162,9 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
                         hint: item.label,
                         icon: Icons.label,
                         keyboardType: TextInputType.text,
-                        onChanged: (value) {
+                        onChanged: (value) async {
                           item.label = value.toString();
+                          await item.save();
                         }
                       ),
 
