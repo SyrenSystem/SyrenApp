@@ -38,7 +38,7 @@ class VolumeControlPage extends ConsumerWidget {
                     ],
                   ).createShader(bounds),
                   child: const Text(
-                    'VOLUME CONTROL',
+                    'VOLUME',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,

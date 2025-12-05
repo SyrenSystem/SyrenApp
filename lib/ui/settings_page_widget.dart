@@ -79,126 +79,179 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
   Widget _buildContent() {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF0a101f),
+        color: Color(0xFF0d121c),
       ),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Center(
-                child: ShaderMask(
-                  shaderCallback: (bounds) => const LinearGradient(
-                    colors: [
-                      Color(0xFFf0e68c),
-                      Color(0xFFd4af37),
-                      Color(0xFFc19a27),
-                    ],
-                  ).createShader(bounds),
-                  child: const Text(
-                    'SETTINGS',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 6,
-                      color: Colors.white,
-                      fontFamily: 'serif',
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Center(
+                  child: ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [
+                        Color(0xFFf0e68c),
+                        Color(0xFFd4af37),
+                        Color(0xFFc19a27),
+                      ],
+                    ).createShader(bounds),
+                    child: const Text(
+                      'SETTINGS',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 6,
+                        color: Colors.white,
+                        fontFamily: 'serif',
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 40),
+                const SizedBox(height: 40),
 
-              // Connection Settings Section
-              Text(
-                'MQTT Connection',
-                style: TextStyle(
-                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 2,
+                // Connection Settings Section
+                Text(
+                  'MQTT Connection',
+                  style: TextStyle(
+                    color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 2,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-              // IP Address Field
-              _buildInputField(
-                controller: _ipController,
-                label: 'IP Address',
-                hint: '192.168.1.100',
-                icon: Icons.router,
-                keyboardType: TextInputType.text,
-              ),
-              const SizedBox(height: 16),
-
-              // Port Field
-              _buildInputField(
-                controller: _portController,
-                label: 'Port',
-                hint: '1883',
-                icon: Icons.network_check,
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 32),
-
-              // List of sensors:
-              Container(
-                height: 200,
-                color: Colors.black, // black background
-                child: ListView.builder(
-                  itemCount: _distanceItems.length,
-                  itemBuilder: (context, index) {
-                    final item = _distanceItems[index];
-                    return ListTile(
-                      leading: Text(
-                        "Sensor: ${item.id}",
-                        style: const TextStyle(color: Colors.yellow), // yellow text
-                      ),
-                      title: _buildInputField(
-                        controller: TextEditingController(),
-                        label: 'Label',
-                        hint: item.label,
-                        icon: Icons.label,
-                        keyboardType: TextInputType.text,
-                        onChanged: (value) async {
-                          item.label = value.toString();
-                          await item.save();
-                        }
-                      ),
-
-                    );
-                  },
+                // IP Address Field
+                _buildInputField(
+                  controller: _ipController,
+                  label: 'IP Address',
+                  hint: '192.168.1.100',
+                  icon: Icons.router,
+                  keyboardType: TextInputType.text,
                 ),
-              ),
+                const SizedBox(height: 16),
 
-              // Save Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveSettings,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFd4af37),
-                    foregroundColor: const Color(0xFF0a101f),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
+                // Port Field
+                _buildInputField(
+                  controller: _portController,
+                  label: 'Port',
+                  hint: '1883',
+                  icon: Icons.network_check,
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 32),
+
+                // Sensor Labels Section
+                if (_distanceItems.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                        width: 1,
+                      ),
                     ),
-                    elevation: 8,
-                    shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SENSOR LABELS',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 2,
+                            color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ..._distanceItems.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final item = entry.value;
+
+                          // Abbreviate long MAC addresses
+                          String displayId = item.id;
+                          if (displayId.length > 12) {
+                            displayId = '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
+                          }
+
+                          return Column(
+                            children: [
+                              if (index > 0)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  child: Divider(
+                                    color: const Color(0xFFd4af37).withValues(alpha: 0.1),
+                                    height: 1,
+                                  ),
+                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    displayId,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildInputField(
+                                    controller: TextEditingController(text: item.label),
+                                    label: 'Label',
+                                    hint: 'Enter label',
+                                    icon: Icons.label,
+                                    keyboardType: TextInputType.text,
+                                    onChanged: (value) async {
+                                      item.label = value.toString();
+                                      await item.save();
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
+                      ],
+                    ),
                   ),
-                  child: const Text(
-                    'SAVE SETTINGS',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2,
+                  const SizedBox(height: 24),
+                ],
+                // Save Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saveSettings,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFd4af37),
+                      foregroundColor: const Color(0xFF0d121c),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 8,
+                      shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                    ),
+                    child: const Text(
+                      'SAVE SETTINGS',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+
+                // Bottom padding to account for navigation bar
+                const SizedBox(height: 100),
+              ],
+            ),
           ),
         ),
       ),
