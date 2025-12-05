@@ -90,7 +90,7 @@ class MqttService {
     Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
     final dataToSend =
     {
-      "id": distanceData["id"],
+      "id": distanceData["id"].toLowerCase(),
       "distance": distanceData['distance']
     }
     ;
@@ -107,7 +107,7 @@ class MqttService {
     String topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
 
     final toSendData = {
-      "id": speakerMacAddress
+      "id": speakerMacAddress.toLowerCase()
     };
     final jsonToSend = jsonEncode(toSendData);
     if (_connected) {
@@ -125,7 +125,7 @@ class MqttService {
       topic = "SyrenSystem/SyrenApp/DisconnectSpeaker";
     }
 
-    final toSendData = {"id": id};
+    final toSendData = {"id": id.toLowerCase()};
     final jsonToSend = jsonEncode(toSendData);
     if (_connected) {
       publish(topic, jsonToSend);
@@ -138,7 +138,7 @@ class MqttService {
   {
     final String topic = "SyrenSystem/SyrenApp/SetSpeakerVolume";
     final toSendData = {
-      "id": identifier,
+      "id": identifier.toLowerCase(),
       "volume": value.toInt()
     };
     publish(topic, jsonEncode(toSendData));
@@ -154,7 +154,7 @@ class MqttService {
         }
       } else if (topic == 'SyrenSystem/SyrenServer/GetSpeakerPosition') {
         if (data.containsKey('id') && data.containsKey('position')) {
-          onSpeakerPositionReceived?.call(data['id'], data['position']);
+          onSpeakerPositionReceived?.call(data['id'].toLowerCase(), data['position']);
         }
       }
     } catch (e) {

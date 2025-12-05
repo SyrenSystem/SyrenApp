@@ -58,16 +58,19 @@ class _LocationViewPageState extends State<LocationViewPage> {
 
               // Canvas
               Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return CustomPaint(
-                      size: Size(constraints.maxWidth, constraints.maxHeight),
-                      painter: LocationPainter(
-                        userPosition: widget.userPosition,
-                        speakers: widget.speakers,
-                      ),
-                    );
-                  },
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 140),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return CustomPaint(
+                        size: Size(constraints.maxWidth, constraints.maxHeight),
+                        painter: LocationPainter(
+                          userPosition: widget.userPosition,
+                          speakers: widget.speakers,
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             ],

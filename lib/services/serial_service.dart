@@ -11,7 +11,7 @@ class SerialService {
     _serialConnection = SerialConnection.create((String message) {
       try {
         Map<String, dynamic> distanceData = jsonDecode(message);
-        String id = distanceData["id"];
+        String id = distanceData["id"].toLowerCase();
         double distance = (distanceData["distance"] as num).toDouble();
 
         onDistanceReceived?.call(id, distance);
