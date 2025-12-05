@@ -144,6 +144,33 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
                 ),
                 const SizedBox(height: 32),
 
+                // Save Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saveSettings,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFd4af37),
+                      foregroundColor: const Color(0xFF0d121c),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 8,
+                      shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                    ),
+                    child: const Text(
+                      'SAVE SETTINGS',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 40),
+
                 // Sensor Labels Section
                 if (_distanceItems.isNotEmpty) ...[
                   Container(
@@ -222,34 +249,12 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
                   ),
                   const SizedBox(height: 24),
                 ],
-                // Save Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _saveSettings,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFd4af37),
-                      foregroundColor: const Color(0xFF0d121c),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 8,
-                      shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
-                    ),
-                    child: const Text(
-                      'SAVE SETTINGS',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                  ),
-                ),
 
                 // Bottom padding to account for navigation bar
-                const SizedBox(height: 100),
+                if (_distanceItems.length < 3)
+                  SizedBox(height: 1000)
+                else
+                  SizedBox(height: 100)
               ],
             ),
           ),
