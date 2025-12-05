@@ -140,6 +140,7 @@ class _MainPageState extends ConsumerState<MainPage> {
                   // Show distances ONLY when connected
                   if (controller.isConnected)
                     ExpansionTile(
+                      shape: Border(),
                       title: const Text(
                         "Distances",
                         style: TextStyle(
@@ -176,23 +177,97 @@ class _MainPageState extends ConsumerState<MainPage> {
                           ),
 
                         Container(
-                          height: 300,
-                          color: Colors.black,
-                          child: ListView.builder(
-                            itemCount: distanceItems.length,
-                            itemBuilder: (context, index) {
-                              final item = distanceItems[index];
-                              return ListTile(
-                                leading: Text(
-                                  "ID: ${item.id}; label: ${item.label}",
-                                  style: const TextStyle(color: Colors.yellow),
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.all(16),
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                              width: 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'CONNECTED SENSORS',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 2,
+                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
                                 ),
-                                title: Text(
-                                  "Distance: ${item.distance.toStringAsFixed(2)}mm",
-                                  style: const TextStyle(color: Colors.yellow),
+                              ),
+                              Flexible(
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: distanceItems.length,
+                                  separatorBuilder: (context, index) => Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Divider(
+                                      color: const Color(0xFFd4af37).withValues(alpha: 0.1),
+                                      height: 1,
+                                    ),
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final item = distanceItems[index];
+                                    // Abbreviate long MAC addresses
+                                    String displayId = item.id;
+                                    if (displayId.length > 12) {
+                                      displayId = '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
+                                    }
+
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      child: Row(
+                                        children: [
+                                          // ID column
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              displayId,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                                fontFamily: 'monospace',
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          // Label column (if not unknown)
+                                          if (item.label != 'unknown')
+                                            Expanded(
+                                              flex: 1,
+                                              child: Text(
+                                                item.label,
+                                                style: TextStyle(
+                                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          const SizedBox(width: 8),
+                                          // Distance column
+                                          Text(
+                                            '${item.distance.toStringAsFixed(1)} mm',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -200,7 +275,6 @@ class _MainPageState extends ConsumerState<MainPage> {
                 ],
               ),
             ),
-
 
           Positioned(
             left: 24,
