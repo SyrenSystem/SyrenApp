@@ -52,7 +52,7 @@ class ConnectSpeakerPage extends ConsumerWidget {
                       ],
                     ).createShader(bounds),
                     child: const Text(
-                      'SYREN APP',
+                      'CALIBRATION',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
