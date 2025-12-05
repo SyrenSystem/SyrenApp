@@ -97,76 +97,111 @@ class _MainPageState extends ConsumerState<MainPage> {
             Positioned(
               left: 24,
               right: 24,
-              bottom: 140,
+              bottom: 110,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ElevatedButton(
-                    onPressed: _startMeasurement,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFd4af37),
-                      foregroundColor: const Color(0xFF0a101f),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 8,
-                      shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
-                    ),
-                    child: Text(
-                      controller.isConnected ? 'STOP MEASUREMENT' : 'START MEASUREMENT',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                  ),
 
-                  const SizedBox(height: 12), // spacing between button
-
-                  ExpansionTile(
-                    title: const Text(
-                      "Distances",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.yellow, // yellow title text
-                      ),
-                    ),
-                    children: [
-                      Container(
-                        height: 300,
-                        color: Colors.black, // black background
-                        child: ListView.builder(
-                          itemCount: distanceItems.length,
-                          itemBuilder: (context, index) {
-                            final item = distanceItems[index];
-                            return ListTile(
-                              leading: Text(
-                                "ID: ${item.id}; label: ${item.label}",
-                                style: const TextStyle(color: Colors.yellow), // yellow text
-                              ),
-                              title: Text(
-                                "Distance: ${item.distance.toStringAsFixed(2)}mm",
-                                style: const TextStyle(color: Colors.yellow), // yellow text
-                              ),
-                            );
-                          },
+                  // Show button here ONLY when NOT connected
+                  if (!controller.isConnected)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _startMeasurement,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFd4af37),
+                          foregroundColor: const Color(0xFF0a101f),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 8,
+                          shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                        ),
+                        child: const Text(
+                          "START MEASUREMENT",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
                         ),
                       ),
-                    ],
-                  )
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Show distances ONLY when connected
+                  if (controller.isConnected)
+                    ExpansionTile(
+                      title: const Text(
+                        "Distances",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.yellow,
+                        ),
+                      ),
+                      children: [
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _startMeasurement,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFd4af37),
+                                  foregroundColor: const Color(0xFF0a101f),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "STOP MEASUREMENT",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        Container(
+                          height: 300,
+                          color: Colors.black,
+                          child: ListView.builder(
+                            itemCount: distanceItems.length,
+                            itemBuilder: (context, index) {
+                              final item = distanceItems[index];
+                              return ListTile(
+                                leading: Text(
+                                  "ID: ${item.id}; label: ${item.label}",
+                                  style: const TextStyle(color: Colors.yellow),
+                                ),
+                                title: Text(
+                                  "Distance: ${item.distance.toStringAsFixed(2)}mm",
+                                  style: const TextStyle(color: Colors.yellow),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
+
 
           Positioned(
             left: 24,
             right: 24,
             bottom: 24,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               decoration: BoxDecoration(
                 color: const Color(0xFF090c13),
                 borderRadius: BorderRadius.circular(20),

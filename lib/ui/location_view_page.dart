@@ -21,18 +21,19 @@ class LocationViewPage extends StatefulWidget {
 class _LocationViewPageState extends State<LocationViewPage> {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0d121c),
-      ),
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.only(top: 60, bottom: 16),
-            child: Stack(
-              children: [
-                Center(
+    return Stack(
+      children: [
+        // Background + content
+        Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF0d121c),
+          ),
+          child: Column(
+            children: [
+              // Header text (NO icon inside here)
+              Padding(
+                padding: const EdgeInsets.only(top: 60, bottom: 16),
+                child: Center(
                   child: ShaderMask(
                     shaderCallback: (bounds) => const LinearGradient(
                       colors: [
@@ -44,7 +45,7 @@ class _LocationViewPageState extends State<LocationViewPage> {
                     child: const Text(
                       'SYREN APP',
                       style: TextStyle(
-                        fontSize: 32,
+                        fontSize: 24,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 8,
                         color: Colors.white,
@@ -53,53 +54,58 @@ class _LocationViewPageState extends State<LocationViewPage> {
                     ),
                   ),
                 ),
-                Positioned(
-                  right: 24,
-                  top: 0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(
-                        color: const Color(0xFFd4af37).withValues(alpha: 0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.add),
-                      color: const Color(0xFFf0e68c),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ConnectSpeakerPage(),
-                            fullscreenDialog: true,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
 
-          // Location visualization area
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return CustomPaint(
-                  size: Size(constraints.maxWidth, constraints.maxHeight),
-                  painter: LocationPainter(
-                    userPosition: widget.userPosition,
-                    speakers: widget.speakers,
+              // Canvas
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return CustomPaint(
+                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      painter: LocationPainter(
+                        userPosition: widget.userPosition,
+                        speakers: widget.speakers,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Floating icon ABOVE EVERYTHING (highest z-index)
+        Positioned(
+          right: 24,
+          top: 60,   // adjust because header text is at 60px
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(25),
+              border: Border.all(
+                color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.add, size: 18),
+              padding: EdgeInsets.zero,
+              color: const Color(0xFFf0e68c),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ConnectSpeakerPage(),
+                    fullscreenDialog: true,
                   ),
                 );
               },
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
