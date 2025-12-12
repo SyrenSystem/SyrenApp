@@ -33,23 +33,32 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
+  cupertino_icons:
   libserialport:
   usb_serial:
   mqtt_client:
   shared_preferences:
-#  usb_serial:
+  flutter_riverpod:
+  riverpod_annotation:
+  hive:
+  hive_flutter:
+  hive_generator:
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  riverpod_generator:
+  build_runner:
+  flutter_launcher_icons:
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/pics/icon_black.png"
+  min_sdk_android: 16 # android min sdk min:16, default 21
+  adaptive_icon_background: "#000000"  # solid black background
+  adaptive_icon_foreground: "assets/pics/icon.png"  # transparent icon with centered design
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

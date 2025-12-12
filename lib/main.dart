@@ -1,27 +1,21 @@
-import 'package:final_project/communication/mqtt.dart';
-import 'package:final_project/serial/serial_base.dart';
+ import 'package:final_project/ui/volume_control_page.dart';
 import 'package:flutter/material.dart';
-import 'dart:convert';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:final_project/ui/location_view_page.dart';
+import 'package:final_project/ui/settings_page_widget.dart';
+import 'package:final_project/providers/app_state_providers.dart';
+import 'package:final_project/providers/measurement_provider.dart';
+import 'package:final_project/providers/settings_provider.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'models/distance_item.dart';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
-void main() {
-
-  runApp(const MyApp());
-}
-
-class DistanceItem {
-  final String id;
-  double distance;
-
-  DistanceItem({required this.id, required this.distance});
-}
-
-class VolumeItem {
-  final String id;
-  int volume;
-
-  VolumeItem({required this.id, required this.volume});
+void main()  async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  Hive.registerAdapter(DistanceItemAdapter());
+  await Hive.openBox<DistanceItem>('distance_items');
+  runApp(const ProviderScope(
+      child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -37,311 +31,337 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class MainPage extends StatefulWidget {
+class MainPage extends ConsumerStatefulWidget {
   const MainPage({super.key});
 
   @override
-  State<MainPage> createState() => _MainPageState();
+  ConsumerState<MainPage> createState(){
+    return _MainPageState();
+  }
 }
 
-class _MainPageState extends State<MainPage> {
+class _MainPageState extends ConsumerState<MainPage> {
+  Future<void> _startMeasurement() async {
+    final controller = ref.read(measurementControllerProvider);
+    final settings = ref.read(settingsProvider);
 
-  int _selectedNavViewIndex = 0;
-  String _displayTextDistance = "Click Start to start sensor measurement.";
-  String _displayTextStartStopSerialButton = "Start";
-  Color _colorStartStopSerialButton = Colors.green;
-  late MQTTClient _mqttClient;
-  final List<DistanceItem> _distanceItems = [];
-  final List<VolumeItem> _volumeItems = [];
-  final TextEditingController _ipController = TextEditingController();
-  final TextEditingController _portController = TextEditingController();
-
-  Future<void> _saveSettings() async {
-    final ip = _ipController.text.trim();
-    final port = int.tryParse(_portController.text.trim());
-
-    if (ip.isEmpty || port == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid IP and port")),
-      );
+    if (controller.isConnected) {
+      controller.stopMeasurement();
+      setState(() {}); // Rebuild to update button text
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ip', ip);
-    await prefs.setInt('port', port);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Settings saved")),
-    );
-  }
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _ipController.text = prefs.getString('ip') ?? '';
-      _portController.text = prefs.getInt('port')?.toString() ?? '';
-    });
-  }
-
-  void _addDistanceSensor(DistanceItem item) {
-    if (_mqttClient.is_connected())
-      {
-        _mqttClient.sendSpeakerConnectionInformation(item.id, true);
+    if (settings.ip.isEmpty || settings.port <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please configure MQTT settings first.")));
       }
-    setState(() {
-      _distanceItems.add(item);
-      _volumeItems.add(VolumeItem(id: item.id, volume: 100));
-    });
-  }
-
-  void _removeDistanceSensor(DistanceItem item) {
-    if (_mqttClient.is_connected())
-    {
-      _mqttClient.sendSpeakerConnectionInformation(item.id, false);
+      return;
     }
-    setState(() {
-      _distanceItems.remove(item);
-    });
-  }
 
-  // initialize the serial connection
-  late final SerialConnection _serialConnection = SerialConnection.create((String message){
-    try {
-      Map<String, dynamic> distanceData = jsonDecode(message);
-      _mqttClient.sendDistance(message);
-      String id = distanceData["id"];
-      double distance = (distanceData["distance"] as num).toDouble();
-      print("Distance: ${distanceData['distance']}");
-      setState(() {
-        _displayTextDistance = "${distanceData["id"]}: ${distanceData['distance']}mm";
-      });
-      final index = _distanceItems.indexWhere((item) => item.id == id);
-      if (index != -1)
-      {
-        setState(() {
-          _distanceItems[index].distance = distance;
-        });
-      }
-      else
-        {
-          _addDistanceSensor(DistanceItem(id: id, distance: distance));
-        }
-
+    final error = await controller.startMeasurement(settings.ip, settings.port);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error)));
     }
-    catch (e)
-    {
-      print(e.toString());
-    }
-  });
 
-  void toggleSerialConnectionButton() {
-    setState(() {
-      if (_serialConnection.connected) {
-        _displayTextStartStopSerialButton = "Stop";
-        _colorStartStopSerialButton = Colors.red;
-      }
-      else {
-        _displayTextStartStopSerialButton = "Start";
-        _colorStartStopSerialButton = Colors.green;
-      }
-    });
+    setState(() {}); // Rebuild to update button text
   }
-
-  @override void initState() {
-    super.initState();
-    _loadSettings();
-    _mqttClient = MQTTClient();
-  }
-
-  @override
-  void dispose() {
-    _serialConnection.disconnect();
-    _mqttClient.disconnect();
-    print("the serial port was closed.");
-    super.dispose();
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedNavViewIndex = index;
-    });
-  }
-
 
   @override
   Widget build(BuildContext context) {
+    final selectedNavIndex = ref.watch(selectedNavIndexProvider);
+    final distanceItems = ref.watch(distanceItemsProvider);
+    final userPosition = ref.watch(userPositionProvider);
+    final speakers = ref.watch(speakersProvider);
+    final controller = ref.read(measurementControllerProvider);
+
+    // workaround: ensure that settings are available for ui actions
+    final dummy = ref.read(settingsProvider);
+
     final List<Widget> pages = [
-      // PLAYING PAGE
-      Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              children: [
-                ElevatedButton(
-                    child: Text(
-                      _displayTextStartStopSerialButton,
-                      style: TextStyle(color: _colorStartStopSerialButton),
-                    ),
-                    onPressed: () async {
-                      if (_serialConnection.connected)
-                        {
-                          List<DistanceItem> toRemoveDistances = List.from(_distanceItems);
-                          for (DistanceItem item in toRemoveDistances)
-                          {
-                            _removeDistanceSensor(item);
-                          }
-                          _serialConnection.disconnect();
-                          toggleSerialConnectionButton();
-                          return;
-                        }
-
-                      String ip = _ipController.text.toString();
-                      int? port = int.tryParse(_portController.text);
-                      if (ip.isEmpty || port == null)
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Invalid MQTT connection preferences.")));
-                          return;
-                        }
-
-                      if (!_mqttClient.is_connected() && !await _mqttClient.connect(ip, port))
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Could not connect to MQTT.")));
-                          return;
-                        }
-
-                      final devices = await _serialConnection.getAvailableDevices();
-                      if (devices.isEmpty)
-                        {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("No USB sensor detected.")));
-                          return;
-                        }
-
-                      await _serialConnection.connect(devices.first);
-                      toggleSerialConnectionButton();
-                    },
-                  ),
-                Text(_displayTextDistance),
-                // Container(
-                //   height: 200,
-                //   color: Colors.blue
-                // )
-                Container(
-                  height: 300,
-                  color: Colors.blue,
-                  child: ListView.builder(
-                  itemCount: _distanceItems.length,
-                  itemBuilder: (context, index) {
-                  final item = _distanceItems[index];
-                  return ListTile(
-                  leading: Text("ID: ${item.id}"),
-                  title: Text("Distance: ${item.distance.toStringAsFixed(2)}mm")
-                  );
-                })
-                )
-              ],
-            ),
-          ),
-        ],
+      // Distance Page (Location View)
+      LocationViewPage(
+        userPosition: userPosition,
+        speakers: speakers.values.toList(),
       ),
 
-      // page volume control
-      ListView.builder(
-        itemCount: _volumeItems.length,
-        itemBuilder: (context, index) {
-        final item = _volumeItems[index];
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(item.id),
-              Slider(
-                  value: item.volume.toDouble(),
-                  min: 0,
-                max: 100,
-                divisions: 100,
-                label:(item.volume.toString()),
-                onChanged: (double value) {
-                    print("volume changed:");
-              })
-            ],
-    );
-    }
-      ),
+      // Volume Control Page
+      VolumeControlPage(),
 
-
-      // page settings
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Connection Settings",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _ipController,
-              decoration: const InputDecoration(
-                labelText: "IP Address",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              decoration: const InputDecoration(
-                labelText: "Port",
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _saveSettings,
-              child: const Text("Save"),
-            ),
-          ],
-        ),
-      )
+      // Settings Page
+      const SettingsPageWidget(),
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Syren App"),
-        centerTitle: true,
-        backgroundColor: Colors.deepPurple,
-      ),
-      body: pages[_selectedNavViewIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.social_distance),
-            label: 'Distance',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.volume_up_rounded),
-            label: 'Volume',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
+      body: Stack(
+        children: [
+          pages[selectedNavIndex],
+
+          // Start Measurement Button - hovering over location view
+          if (selectedNavIndex == 0)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 110,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+
+                  // Show button here ONLY when NOT connected
+                  if (!controller.isConnected)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _startMeasurement,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFd4af37),
+                          foregroundColor: const Color(0xFF0a101f),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 8,
+                          shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                        ),
+                        child: const Text(
+                          "START MEASUREMENT",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 12),
+
+                  // Show distances ONLY when connected
+                  if (controller.isConnected)
+                    ExpansionTile(
+                      shape: Border(),
+                      title: const Text(
+                        "Distances",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.yellow,
+                        ),
+                      ),
+                      children: [
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _startMeasurement,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFd4af37),
+                                  foregroundColor: const Color(0xFF0a101f),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "STOP MEASUREMENT",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.all(16),
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                              width: 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'CONNECTED SENSORS',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 2,
+                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                ),
+                              ),
+                              Flexible(
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: distanceItems.length,
+                                  separatorBuilder: (context, index) => Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Divider(
+                                      color: const Color(0xFFd4af37).withValues(alpha: 0.1),
+                                      height: 1,
+                                    ),
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final item = distanceItems[index];
+                                    // Abbreviate long MAC addresses
+                                    String displayId = item.id;
+                                    if (displayId.length > 12) {
+                                      displayId = '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
+                                    }
+
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      child: Row(
+                                        children: [
+                                          // ID column
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              displayId,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                                fontFamily: 'monospace',
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          // Label column (if not unknown)
+                                          if (item.label != 'unknown')
+                                            Expanded(
+                                              flex: 1,
+                                              child: Text(
+                                                item.label,
+                                                style: TextStyle(
+                                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          const SizedBox(width: 8),
+                                          // Distance column
+                                          Text(
+                                            '${item.distance.toStringAsFixed(1)} mm',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 24,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF090c13),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildNavItem(
+                        icon: Icons.social_distance,
+                        label: 'Distance',
+                        index: 0,
+                        isSelected: selectedNavIndex == 0,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 0;
+                        },
+                      ),
+                      _buildNavItem(
+                        icon: Icons.volume_up_rounded,
+                        label: 'Volume',
+                        index: 1,
+                        isSelected: selectedNavIndex == 1,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 1;
+                        },
+                      ),
+                      _buildNavItem(
+                        icon: Icons.settings,
+                        label: 'Settings',
+                        index: 2,
+                        isSelected: selectedNavIndex == 2,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 2;
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
-        currentIndex: _selectedNavViewIndex,
-        selectedItemColor: Colors.deepPurple,
-        onTap: _onItemTapped,
+      ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+              size: 32,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
