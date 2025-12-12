@@ -1,16 +1,5 @@
-# final_project
+# SyrenApp
 
-App for the Syren System
+App for the SyrenSystem.
 
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The SyrenApp allows the user to inspect sensor distances within a top-down view, modify volume values for each individual speaker, and give them descriptive labels. In the background, it is reading out the SyrenSensor distances and propagates these to the SyrenServer.
