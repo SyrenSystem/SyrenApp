@@ -1,4 +1,3 @@
-import 'package:final_project/models/distance_item.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:flutter/material.dart';
@@ -19,9 +18,7 @@ class VolumeControlPage extends ConsumerWidget {
     final mqttClient = ref.read(mqttServiceProvider);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0d121c),
-      ),
+      decoration: const BoxDecoration(color: Color(0xFF0d121c)),
       child: SafeArea(
         child: Column(
           children: [
@@ -61,7 +58,9 @@ class VolumeControlPage extends ConsumerWidget {
                           Icon(
                             Icons.speaker_group_outlined,
                             size: 64,
-                            color: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                            color: const Color(
+                              0xFFd4af37,
+                            ).withValues(alpha: 0.3),
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -75,25 +74,35 @@ class VolumeControlPage extends ConsumerWidget {
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
                       itemCount: distanceItems.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 12),
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final item = distanceItems[index];
 
                         // Abbreviate long MAC addresses
                         String displayId = item.id;
                         if (displayId.length > 12) {
-                          displayId = '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
+                          displayId =
+                              '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
                         }
 
                         return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                              color: const Color(
+                                0xFFd4af37,
+                              ).withValues(alpha: 0.2),
                               width: 1,
                             ),
                           ),
@@ -102,7 +111,8 @@ class VolumeControlPage extends ConsumerWidget {
                             children: [
                               // ID and Label row
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     displayId,
@@ -116,7 +126,9 @@ class VolumeControlPage extends ConsumerWidget {
                                     Text(
                                       item.label,
                                       style: TextStyle(
-                                        color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                        color: const Color(
+                                          0xFFd4af37,
+                                        ).withValues(alpha: 0.8),
                                         fontSize: 11,
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -129,11 +141,17 @@ class VolumeControlPage extends ConsumerWidget {
                               SliderTheme(
                                 data: SliderThemeData(
                                   activeTrackColor: const Color(0xFFd4af37),
-                                  inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
+                                  inactiveTrackColor: Colors.white.withValues(
+                                    alpha: 0.2,
+                                  ),
                                   thumbColor: const Color(0xFFd4af37),
-                                  overlayColor: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                                  overlayColor: const Color(
+                                    0xFFd4af37,
+                                  ).withValues(alpha: 0.2),
                                   trackHeight: 4,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 8,
+                                  ),
                                 ),
                                 child: Slider(
                                   value: item.volume,
@@ -141,7 +159,9 @@ class VolumeControlPage extends ConsumerWidget {
                                   max: 100,
                                   divisions: 100,
                                   onChanged: (double value) async {
-                                    ref.read(distanceItemsProvider.notifier).updateVolume(item.id, value);
+                                    ref
+                                        .read(distanceItemsProvider.notifier)
+                                        .updateVolume(item.id, value);
                                     mqttClient.sendVolumeUpdate(item.id, value);
                                     item.volume = value;
                                     await item.save();
@@ -153,7 +173,8 @@ class VolumeControlPage extends ConsumerWidget {
 
                               // Volume display row
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Icon(
                                     _getVolumeIcon(item.volume),

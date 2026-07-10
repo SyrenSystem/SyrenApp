@@ -2,8 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/models/distance_item.dart';
-import 'package:final_project/models/position_3d.dart';
-import 'package:final_project/models/speaker_data.dart';
 
 // Measurement Controller Provider
 final measurementControllerProvider = Provider<MeasurementController>((ref) {
@@ -15,42 +13,30 @@ class MeasurementController {
 
   MeasurementController(this.ref);
 
-  Future<String?> startMeasurement(String ip, int port) async {
+  Future<String?> startMeasurement() async {
     final mqttService = ref.read(mqttServiceProvider);
     final serialService = ref.read(serialServiceProvider);
 
-    // Connect to MQTT
-    if (!mqttService.isConnected && !await mqttService.connect(ip, port)) {
+    if (!await ref.read(mqttConnectionProvider.future)) {
       return "Could not connect to MQTT.";
     }
-
-    // Set up MQTT callbacks
-    mqttService.onUserPositionReceived = (positionData) {
-      ref.read(userPositionProvider.notifier).state = Position3D.fromJson(positionData);
-    };
-
-    mqttService.onSpeakerPositionReceived = (id, positionData) {
-      final speakers = ref.read(speakersProvider.notifier);
-      speakers.state = {
-        ...speakers.state,
-        id: SpeakerData(id: id, position: Position3D.fromJson(positionData)),
-      };
-    };
 
     // Set up serial callbacks
     serialService.onDistanceReceived = (id, distance) {
       final distanceItems = ref.read(distanceItemsProvider.notifier);
 
       // Update or add distance item
-      final existingIndex = ref.read(distanceItemsProvider).indexWhere((item) => item.id == id);
+      final existingIndex = ref
+          .read(distanceItemsProvider)
+          .indexWhere((item) => item.id == id);
       if (existingIndex != -1) {
-        // Send distance via MQTT
-        mqttService.sendDistance('{"id": "$id", "distance": $distance}');
         distanceItems.updateDistance(id, distance);
       } else {
         final newItem = DistanceItem(id: id, distance: distance, active: true);
         distanceItems.add(newItem);
       }
+
+      mqttService.sendDistance('{"id": "$id", "distance": $distance}');
     };
 
     // Connect to serial device
@@ -59,11 +45,14 @@ class MeasurementController {
       return "No USB sensor detected.";
     }
 
-    await serialService.connect(devices.first);
+    if (!await serialService.connect(devices.first)) {
+      return "Could not open the USB sensor.";
+    }
+
     return null; // Success
   }
 
-  void stopMeasurement() {
+  Future<void> stopMeasurement() async {
     final mqttService = ref.read(mqttServiceProvider);
     final serialService = ref.read(serialServiceProvider);
     final distanceItems = ref.read(distanceItemsProvider);
@@ -79,8 +68,7 @@ class MeasurementController {
     // Clear state
     // ref.read(distanceItemsProvider.notifier).clear();
 
-    // Disconnect services
-    serialService.disconnect();
+    await serialService.disconnect();
   }
 
   bool get isConnected {

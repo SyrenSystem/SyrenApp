@@ -11,8 +11,8 @@ class ConnectSpeakerPage extends ConsumerWidget {
   String? _getClosestSpeaker(List<DistanceItem> distanceItems) {
     if (distanceItems.isEmpty) return null;
 
-    var closest = distanceItems.reduce((a, b) =>
-      a.distance < b.distance ? a : b
+    var closest = distanceItems.reduce(
+      (a, b) => a.distance < b.distance ? a : b,
     );
 
     // Only return if distance is close to 0 (within 10cm)
@@ -82,180 +82,208 @@ class ConnectSpeakerPage extends ConsumerWidget {
                         child: CustomPaint(
                           painter: RingsPainter(
                             closestDistance: distanceItems.isNotEmpty
-                              ? distanceItems.map((e) => e.distance).reduce(math.min)
-                              : 300.0,
+                                ? distanceItems
+                                      .map((e) => e.distance)
+                                      .reduce(math.min)
+                                : 300.0,
                           ),
                         ),
                       ),
 
                       const SizedBox(height: 24),
 
-                  // Title
-                  const Text(
-                    'Place Speaker for',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const Text(
-                    'Mapping',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Description
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                    child: Text(
-                      'Place your phone on the speaker you want to register. The rings will get stronger as you get closer.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withValues(alpha: 0.6),
-                        height: 1.5,
+                      // Title
+                      const Text(
+                        'Place Speaker for',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w400,
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+                      const Text(
+                        'Mapping',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w400,
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
 
-                  const SizedBox(height: 40),
+                      const SizedBox(height: 24),
 
-                  // Distance readings
-                  if (distanceItems.isNotEmpty) ...[
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 40),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFFd4af37).withValues(alpha: 0.2),
-                          width: 1,
+                      // Description
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40.0),
+                        child: Text(
+                          'Place your phone on the speaker you want to register. The rings will get stronger as you get closer.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.6),
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'SENSOR DISTANCES',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 2,
-                              color: const Color(0xFFd4af37).withValues(alpha: 0.8),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...distanceItems.map((item) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  item.id,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                Text(
-                                  '${item.distance.toStringAsFixed(1)} mm',
-                                  style: TextStyle(
-                                    color: item.distance <= 500
-                                      ? const Color(0xFF4ade80)
-                                      : Colors.white,
-                                    fontSize: 14,
-                                    fontWeight: item.distance <= 500
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
 
-                  // Connect button
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: closestSpeakerId != null
-                          ? () async {
-                              final mqttService = ref.read(mqttServiceProvider);
-                              final success = mqttService.connectSpeaker(closestSpeakerId!);
+                      const SizedBox(height: 40),
 
-                              if (context.mounted) {
-                                if (success) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text("Speaker $closestSpeakerId connected for mapping!"),
-                                      backgroundColor: const Color(0xFFd4af37),
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                    ),
-                                  );
-                                  Navigator.pop(context);
-                                } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text("Failed to connect. Check MQTT connection."),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                  );
-                                }
-                              }
-                            }
-                          : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: closestSpeakerId != null
-                            ? const Color(0xFFd4af37)
-                            : Colors.grey.withValues(alpha: 0.3),
-                          foregroundColor: closestSpeakerId != null
-                            ? const Color(0xFF0a101f)
-                            : Colors.grey,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
+                      // Distance readings
+                      if (distanceItems.isNotEmpty) ...[
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 40),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: closestSpeakerId != null ? 8 : 0,
-                          shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
-                        ),
-                        child: Container(
-                          width: double.infinity,
-                          alignment: Alignment.center,
-                          child: Text(
-                            closestSpeakerId != null
-                                ? 'CONNECT SPEAKER $closestSpeakerId'
-                                : 'GET CLOSER TO A SPEAKER',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
+                            border: Border.all(
+                              color: const Color(
+                                0xFFd4af37,
+                              ).withValues(alpha: 0.2),
+                              width: 1,
                             ),
-                            textAlign: TextAlign.center,
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'SENSOR DISTANCES',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 2,
+                                  color: const Color(
+                                    0xFFd4af37,
+                                  ).withValues(alpha: 0.8),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              ...distanceItems.map(
+                                (item) => Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        item.id,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${item.distance.toStringAsFixed(1)} mm',
+                                        style: TextStyle(
+                                          color: item.distance <= 500
+                                              ? const Color(0xFF4ade80)
+                                              : Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: item.distance <= 500
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // Connect button
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: closestSpeakerId != null
+                                ? () async {
+                                    final mqttService = ref.read(
+                                      mqttServiceProvider,
+                                    );
+                                    final success = mqttService.connectSpeaker(
+                                      closestSpeakerId,
+                                    );
+
+                                    if (context.mounted) {
+                                      if (success) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              "Speaker $closestSpeakerId connected for mapping!",
+                                            ),
+                                            backgroundColor: const Color(
+                                              0xFFd4af37,
+                                            ),
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                          ),
+                                        );
+                                        Navigator.pop(context);
+                                      } else {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              "Failed to connect. Check MQTT connection.",
+                                            ),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  }
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: closestSpeakerId != null
+                                  ? const Color(0xFFd4af37)
+                                  : Colors.grey.withValues(alpha: 0.3),
+                              foregroundColor: closestSpeakerId != null
+                                  ? const Color(0xFF0a101f)
+                                  : Colors.grey,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: closestSpeakerId != null ? 8 : 0,
+                              shadowColor: const Color(
+                                0xFFd4af37,
+                              ).withValues(alpha: 0.3),
+                            ),
+                            child: Container(
+                              width: double.infinity,
+                              alignment: Alignment.center,
+                              child: Text(
+                                closestSpeakerId != null
+                                    ? 'CONNECT SPEAKER $closestSpeakerId'
+                                    : 'GET CLOSER TO A SPEAKER',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.5,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 80), // Bottom spacing
+                    ],
                   ),
-                  const SizedBox(height: 80), // Bottom spacing
-                ],
-              ),
                 ),
               ),
             ),

@@ -1,15 +1,12 @@
 import 'package:libserialport/libserialport.dart';
-import 'package:usb_serial/usb_serial.dart';
 import 'serial_base.dart';
-import 'dart:io';
 
 class SerialDesktopConnection extends SerialConnection {
   late SerialPort _port;
   bool _connected = false;
 
-  SerialDesktopConnection (final Function(String meassage) onMessage):
-        super(onMessage){
-}
+  SerialDesktopConnection(final Function(String meassage) onMessage)
+    : super(onMessage) {}
 
   @override
   bool get connected => _connected;
@@ -31,11 +28,11 @@ class SerialDesktopConnection extends SerialConnection {
 
     final reader = SerialPortReader(_port);
     reader.stream.listen((data) {
-        dataReceived(data);
+      dataReceived(data);
     });
     _connected = true;
     return Future.value(true);
-}
+  }
 
   @override
   Future<void> disconnect() {

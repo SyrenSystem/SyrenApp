@@ -1,21 +1,21 @@
- import 'package:final_project/ui/volume_control_page.dart';
+import 'package:final_project/ui/volume_control_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
 import 'package:final_project/ui/settings_page_widget.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
+import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/providers/settings_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'models/distance_item.dart';
 
-void main()  async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   Hive.registerAdapter(DistanceItemAdapter());
   await Hive.openBox<DistanceItem>('distance_items');
-  runApp(const ProviderScope(
-      child: MyApp()));
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -35,7 +35,7 @@ class MainPage extends ConsumerStatefulWidget {
   const MainPage({super.key});
 
   @override
-  ConsumerState<MainPage> createState(){
+  ConsumerState<MainPage> createState() {
     return _MainPageState();
   }
 }
@@ -46,7 +46,7 @@ class _MainPageState extends ConsumerState<MainPage> {
     final settings = ref.read(settingsProvider);
 
     if (controller.isConnected) {
-      controller.stopMeasurement();
+      await controller.stopMeasurement();
       setState(() {}); // Rebuild to update button text
       return;
     }
@@ -54,15 +54,19 @@ class _MainPageState extends ConsumerState<MainPage> {
     if (settings.ip.isEmpty || settings.port <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please configure MQTT settings first.")));
+          const SnackBar(
+            content: Text("Please configure MQTT settings first."),
+          ),
+        );
       }
       return;
     }
 
-    final error = await controller.startMeasurement(settings.ip, settings.port);
+    final error = await controller.startMeasurement();
     if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
 
     setState(() {}); // Rebuild to update button text
@@ -76,8 +80,7 @@ class _MainPageState extends ConsumerState<MainPage> {
     final speakers = ref.watch(speakersProvider);
     final controller = ref.read(measurementControllerProvider);
 
-    // workaround: ensure that settings are available for ui actions
-    final dummy = ref.read(settingsProvider);
+    ref.watch(mqttConnectionProvider);
 
     final List<Widget> pages = [
       // Distance Page (Location View)
@@ -107,7 +110,6 @@ class _MainPageState extends ConsumerState<MainPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
                   // Show button here ONLY when NOT connected
                   if (!controller.isConnected)
                     SizedBox(
@@ -122,7 +124,9 @@ class _MainPageState extends ConsumerState<MainPage> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           elevation: 8,
-                          shadowColor: const Color(0xFFd4af37).withValues(alpha: 0.3),
+                          shadowColor: const Color(
+                            0xFFd4af37,
+                          ).withValues(alpha: 0.3),
                         ),
                         child: const Text(
                           "START MEASUREMENT",
@@ -150,31 +154,33 @@ class _MainPageState extends ConsumerState<MainPage> {
                         ),
                       ),
                       children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _startMeasurement,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFd4af37),
-                                  foregroundColor: const Color(0xFF0a101f),
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _startMeasurement,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFd4af37),
+                                foregroundColor: const Color(0xFF0a101f),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
                                 ),
-                                child: const Text(
-                                  "STOP MEASUREMENT",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 2,
-                                  ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                "STOP MEASUREMENT",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 2,
                                 ),
                               ),
                             ),
                           ),
+                        ),
 
                         Container(
                           margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -184,7 +190,9 @@ class _MainPageState extends ConsumerState<MainPage> {
                             color: Colors.black.withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+                              color: const Color(
+                                0xFFd4af37,
+                              ).withValues(alpha: 0.2),
                               width: 1,
                             ),
                           ),
@@ -197,7 +205,9 @@ class _MainPageState extends ConsumerState<MainPage> {
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 2,
-                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                  color: const Color(
+                                    0xFFd4af37,
+                                  ).withValues(alpha: 0.8),
                                 ),
                               ),
                               Flexible(
@@ -205,9 +215,13 @@ class _MainPageState extends ConsumerState<MainPage> {
                                   shrinkWrap: true,
                                   itemCount: distanceItems.length,
                                   separatorBuilder: (context, index) => Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
                                     child: Divider(
-                                      color: const Color(0xFFd4af37).withValues(alpha: 0.1),
+                                      color: const Color(
+                                        0xFFd4af37,
+                                      ).withValues(alpha: 0.1),
                                       height: 1,
                                     ),
                                   ),
@@ -216,11 +230,14 @@ class _MainPageState extends ConsumerState<MainPage> {
                                     // Abbreviate long MAC addresses
                                     String displayId = item.id;
                                     if (displayId.length > 12) {
-                                      displayId = '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
+                                      displayId =
+                                          '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
                                     }
 
                                     return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 4,
+                                      ),
                                       child: Row(
                                         children: [
                                           // ID column
@@ -244,7 +261,9 @@ class _MainPageState extends ConsumerState<MainPage> {
                                               child: Text(
                                                 item.label,
                                                 style: TextStyle(
-                                                  color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+                                                  color: const Color(
+                                                    0xFFd4af37,
+                                                  ).withValues(alpha: 0.8),
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.w500,
                                                 ),
@@ -347,14 +366,18 @@ class _MainPageState extends ConsumerState<MainPage> {
           children: [
             Icon(
               icon,
-              color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+              color: isSelected
+                  ? const Color(0xFFd4af37)
+                  : const Color(0xFF808080),
               size: 32,
             ),
             const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? const Color(0xFFd4af37) : const Color(0xFF808080),
+                color: isSelected
+                    ? const Color(0xFFd4af37)
+                    : const Color(0xFF808080),
                 fontSize: 16,
                 fontWeight: FontWeight.w400,
               ),

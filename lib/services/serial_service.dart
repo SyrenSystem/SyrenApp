@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:final_project/serial/serial_base.dart';
 
@@ -28,18 +29,18 @@ class SerialService {
     return await _serialConnection!.getAvailableDevices();
   }
 
-  Future<void> connect(dynamic device) async {
+  Future<bool> connect(dynamic device) async {
     if (_serialConnection == null) {
       initialize();
     }
-    await _serialConnection!.connect(device);
+    return await _serialConnection!.connect(device);
   }
 
-  void disconnect() {
-    _serialConnection?.disconnect();
+  Future<void> disconnect() async {
+    await _serialConnection?.disconnect();
   }
 
   void dispose() {
-    disconnect();
+    unawaited(disconnect());
   }
 }
