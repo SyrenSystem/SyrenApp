@@ -27,6 +27,10 @@ void main() {
   setUp(() async {
     final distanceBox = await Hive.openBox<DistanceItem>('distance_items');
     await distanceBox.clear();
+    final connectionsBox = await Hive.openBox<bool>('speaker_connections');
+    await connectionsBox.clear();
+    final metadataBox = await Hive.openBox<String>('syren_metadata');
+    await metadataBox.clear();
   });
 
   tearDownAll(() async {
@@ -163,13 +167,31 @@ void main() {
     serialService.onDistanceReceived?.call('sensor', 42.5);
 
     expect(mqttService.sentDistances, hasLength(1));
-    expect(mqttService.sentDistances.single, contains('42.5'));
+    expect(mqttService.sentDistances.single, ('sensor', 42.5));
     expect(container.read(distanceItemsProvider), hasLength(1));
     expect(container.read(distanceItemsProvider).single.id, 'sensor');
 
     await controller.stopMeasurement();
     expect(serialService.disconnectCalls, 1);
     expect(mqttService.disconnectCalls, 0);
+  });
+
+  test('speaker connection includes the saved volume', () async {
+    final mqttService = FakeMqttService();
+    final serialService = FakeSerialService(connectResult: true);
+    final container = createContainer(mqttService, serialService);
+    addTearDown(container.dispose);
+    container
+        .read(distanceItemsProvider.notifier)
+        .add(DistanceItem(id: 'sensor', distance: 20, volume: 37));
+
+    final connected = await container
+        .read(measurementControllerProvider)
+        .connectSpeaker('sensor');
+
+    expect(connected, isTrue);
+    expect(mqttService.connectRequests, [('sensor', 37)]);
+    expect(container.read(desiredSpeakerConnectionsProvider), {'sensor': true});
   });
 }
 
@@ -202,8 +224,11 @@ class FakeMqttService extends MqttService {
       super(clientId: 'SyrenApp-test-client');
 
   final List<bool> _connectionResults;
-  final List<String> sentDistances = [];
-  final List<(String Host, int Port)> connectedEndpoints = [];
+  final List<(String, double)> sentDistances = [];
+  final List<(String, double)> connectRequests = [];
+  final List<String> disconnectRequests = [];
+  final List<(String, double)> volumeUpdates = [];
+  final List<(String, int)> connectedEndpoints = [];
   bool _isConnected = true;
   int disconnectCalls = 0;
 
@@ -220,17 +245,28 @@ class FakeMqttService extends MqttService {
   }
 
   @override
-  bool sendDistance(
-    String rawDistanceData, [
-    String topic = 'SyrenSystem/SyrenApp/UpdateDistance',
-  ]) {
-    sentDistances.add(rawDistanceData);
+  bool sendDistance(String id, double distance) {
+    sentDistances.add((id, distance));
     return true;
   }
 
   @override
-  bool sendSpeakerConnectionInformation(String sensorId, bool connected) =>
-      true;
+  bool sendConnect(String id, double volume) {
+    connectRequests.add((id, volume));
+    return _isConnected;
+  }
+
+  @override
+  bool sendDisconnect(String id) {
+    disconnectRequests.add(id);
+    return _isConnected;
+  }
+
+  @override
+  bool sendVolumeUpdate(String id, double volume) {
+    volumeUpdates.add((id, volume));
+    return _isConnected;
+  }
 
   @override
   Future<void> disconnect() async {
@@ -246,7 +282,7 @@ class FakeSerialService extends SerialService {
   });
 
   final bool connectResult;
-  final List<dynamic> availableDevices;
+  final List<String> availableDevices;
   bool connected = false;
   int connectCalls = 0;
   int disconnectCalls = 0;
@@ -255,10 +291,10 @@ class FakeSerialService extends SerialService {
   bool get isConnected => connected;
 
   @override
-  Future<List<dynamic>> getAvailableDevices() async => availableDevices;
+  Future<List<String>> getAvailableDevices() async => availableDevices;
 
   @override
-  Future<bool> connect(dynamic device) async {
+  Future<bool> connect(String device) async {
     connectCalls++;
     connected = connectResult;
     return connectResult;

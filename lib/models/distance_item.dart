@@ -2,7 +2,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 part 'distance_item.g.dart';
 
 @HiveType(typeId: 0)
-class DistanceItem extends HiveObject{
+class DistanceItem extends HiveObject {
   @HiveField(0)
   final String id;
   double distance;
@@ -12,5 +12,11 @@ class DistanceItem extends HiveObject{
   double volume;
   bool active;
 
-  DistanceItem({required this.id, this.distance = -1, this.active = false, this.volume = 100, this.label = "unknown" });
+  DistanceItem({
+    required this.id,
+    this.distance = -1,
+    this.active = false,
+    this.volume = 0,
+    this.label = 'unknown',
+  });
 }

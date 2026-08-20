@@ -7,6 +7,7 @@ import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/providers/settings_provider.dart';
+import 'package:final_project/util/format.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'models/distance_item.dart';
 
@@ -15,6 +16,8 @@ void main() async {
   await Hive.initFlutter();
   Hive.registerAdapter(DistanceItemAdapter());
   await Hive.openBox<DistanceItem>('distance_items');
+  await Hive.openBox<bool>('speaker_connections');
+  await Hive.openBox<String>('syren_metadata');
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -75,19 +78,13 @@ class _MainPageState extends ConsumerState<MainPage> {
   @override
   Widget build(BuildContext context) {
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
-    final distanceItems = ref.watch(distanceItemsProvider);
-    final userPosition = ref.watch(userPositionProvider);
-    final speakers = ref.watch(speakersProvider);
     final controller = ref.read(measurementControllerProvider);
 
+    // This keeps the broker connection alive for every page.
     ref.watch(mqttConnectionProvider);
 
     final List<Widget> pages = [
-      // Distance Page (Location View)
-      LocationViewPage(
-        userPosition: userPosition,
-        speakers: speakers.values.toList(),
-      ),
+      const LocationViewPage(),
 
       // Volume Control Page
       VolumeControlPage(),
@@ -101,7 +98,7 @@ class _MainPageState extends ConsumerState<MainPage> {
         children: [
           pages[selectedNavIndex],
 
-          // Start Measurement Button - hovering over location view
+          // The measurement controls float above the location view.
           if (selectedNavIndex == 0)
             Positioned(
               left: 24,
@@ -182,113 +179,7 @@ class _MainPageState extends ConsumerState<MainPage> {
                           ),
                         ),
 
-                        Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
-                          padding: const EdgeInsets.all(16),
-                          constraints: const BoxConstraints(maxHeight: 300),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(
-                                0xFFd4af37,
-                              ).withValues(alpha: 0.2),
-                              width: 1,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'CONNECTED SENSORS',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 2,
-                                  color: const Color(
-                                    0xFFd4af37,
-                                  ).withValues(alpha: 0.8),
-                                ),
-                              ),
-                              Flexible(
-                                child: ListView.separated(
-                                  shrinkWrap: true,
-                                  itemCount: distanceItems.length,
-                                  separatorBuilder: (context, index) => Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Divider(
-                                      color: const Color(
-                                        0xFFd4af37,
-                                      ).withValues(alpha: 0.1),
-                                      height: 1,
-                                    ),
-                                  ),
-                                  itemBuilder: (context, index) {
-                                    final item = distanceItems[index];
-                                    // Abbreviate long MAC addresses
-                                    String displayId = item.id;
-                                    if (displayId.length > 12) {
-                                      displayId =
-                                          '${displayId.substring(0, 6)}...${displayId.substring(displayId.length - 6)}';
-                                    }
-
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 4,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          // ID column
-                                          Expanded(
-                                            flex: 2,
-                                            child: Text(
-                                              displayId,
-                                              style: const TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 12,
-                                                fontFamily: 'monospace',
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          // Label column (if not unknown)
-                                          if (item.label != 'unknown')
-                                            Expanded(
-                                              flex: 1,
-                                              child: Text(
-                                                item.label,
-                                                style: TextStyle(
-                                                  color: const Color(
-                                                    0xFFd4af37,
-                                                  ).withValues(alpha: 0.8),
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          const SizedBox(width: 8),
-                                          // Distance column
-                                          Text(
-                                            '${item.distance.toStringAsFixed(1)} mm',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        const _ConnectedSensorsPanel(),
                       ],
                     ),
                 ],
@@ -384,6 +275,100 @@ class _MainPageState extends ConsumerState<MainPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ConnectedSensorsPanel extends ConsumerWidget {
+  const _ConnectedSensorsPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final distanceItems = ref.watch(distanceItemsProvider);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(maxHeight: 300),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFd4af37).withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'CONNECTED SENSORS',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 2,
+              color: const Color(0xFFd4af37).withValues(alpha: 0.8),
+            ),
+          ),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: distanceItems.length,
+              separatorBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Divider(
+                  color: const Color(0xFFd4af37).withValues(alpha: 0.1),
+                  height: 1,
+                ),
+              ),
+              itemBuilder: (context, index) {
+                final item = distanceItems[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          abbreviateId(item.id),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (item.label != 'unknown')
+                        Expanded(
+                          child: Text(
+                            item.label,
+                            style: TextStyle(
+                              color: const Color(
+                                0xFFd4af37,
+                              ).withValues(alpha: 0.8),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      Text(
+                        formatDistanceMillimeters(item.distance),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

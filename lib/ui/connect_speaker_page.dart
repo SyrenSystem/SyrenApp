@@ -1,22 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/providers/app_state_providers.dart';
+import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/models/distance_item.dart';
 import 'dart:math' as math;
+
+const double connectDistanceThresholdMm = 100;
+const double ringsRangeMm = 3000;
 
 class ConnectSpeakerPage extends ConsumerWidget {
   const ConnectSpeakerPage({super.key});
 
   String? _getClosestSpeaker(List<DistanceItem> distanceItems) {
-    if (distanceItems.isEmpty) return null;
+    final validItems = distanceItems
+        .where((item) => item.distance >= 0)
+        .toList();
+    if (validItems.isEmpty) {
+      return null;
+    }
 
-    var closest = distanceItems.reduce(
-      (a, b) => a.distance < b.distance ? a : b,
+    final closest = validItems.reduce(
+      (first, second) => first.distance < second.distance ? first : second,
     );
 
     // Only return if distance is close to 0 (within 10cm)
-    if (closest.distance <= 500) {
+    if (closest.distance <= connectDistanceThresholdMm) {
       return closest.id;
     }
     return null;
@@ -25,6 +33,10 @@ class ConnectSpeakerPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final distanceItems = ref.watch(distanceItemsProvider);
+    final validDistances = distanceItems
+        .where((item) => item.distance >= 0)
+        .map((item) => item.distance)
+        .toList();
     final closestSpeakerId = _getClosestSpeaker(distanceItems);
 
     return Scaffold(
@@ -81,11 +93,9 @@ class ConnectSpeakerPage extends ConsumerWidget {
                         height: 300,
                         child: CustomPaint(
                           painter: RingsPainter(
-                            closestDistance: distanceItems.isNotEmpty
-                                ? distanceItems
-                                      .map((e) => e.distance)
-                                      .reduce(math.min)
-                                : 300.0,
+                            closestDistance: validDistances.isNotEmpty
+                                ? validDistances.reduce(math.min)
+                                : null,
                           ),
                         ),
                       ),
@@ -178,11 +188,15 @@ class ConnectSpeakerPage extends ConsumerWidget {
                                       Text(
                                         '${item.distance.toStringAsFixed(1)} mm',
                                         style: TextStyle(
-                                          color: item.distance <= 500
+                                          color:
+                                              item.distance <=
+                                                  connectDistanceThresholdMm
                                               ? const Color(0xFF4ade80)
                                               : Colors.white,
                                           fontSize: 14,
-                                          fontWeight: item.distance <= 500
+                                          fontWeight:
+                                              item.distance <=
+                                                  connectDistanceThresholdMm
                                               ? FontWeight.bold
                                               : FontWeight.normal,
                                         ),
@@ -205,12 +219,9 @@ class ConnectSpeakerPage extends ConsumerWidget {
                           child: ElevatedButton(
                             onPressed: closestSpeakerId != null
                                 ? () async {
-                                    final mqttService = ref.read(
-                                      mqttServiceProvider,
-                                    );
-                                    final success = mqttService.connectSpeaker(
-                                      closestSpeakerId,
-                                    );
+                                    final success = await ref
+                                        .read(measurementControllerProvider)
+                                        .connectSpeaker(closestSpeakerId);
 
                                     if (context.mounted) {
                                       if (success) {
@@ -295,7 +306,7 @@ class ConnectSpeakerPage extends ConsumerWidget {
 }
 
 class RingsPainter extends CustomPainter {
-  final double closestDistance;
+  final double? closestDistance;
 
   RingsPainter({required this.closestDistance});
 
@@ -304,8 +315,9 @@ class RingsPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
 
     // Calculate alpha based on distance (closer = more opaque)
-    // Distance range: 0-300cm, alpha range: 1.0-0.1
-    final normalizedDistance = (closestDistance / 300).clamp(0.0, 1.0);
+    // Distance controls the ring opacity.
+    final normalizedDistance =
+        ((closestDistance ?? ringsRangeMm) / ringsRangeMm).clamp(0.0, 1.0);
     final baseAlpha = 1.0 - (normalizedDistance * 0.9); // 1.0 to 0.1
 
     // Draw multiple concentric rings

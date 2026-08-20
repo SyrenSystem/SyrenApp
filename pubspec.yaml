@@ -42,7 +42,6 @@ dependencies:
   riverpod_annotation:
   hive:
   hive_flutter:
-  hive_generator:
 
 dev_dependencies:
   flutter_test:
@@ -51,6 +50,7 @@ dev_dependencies:
   riverpod_generator:
   build_runner:
   flutter_launcher_icons:
+  hive_generator:
 
 flutter_launcher_icons:
   android: true

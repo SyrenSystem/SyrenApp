@@ -1,69 +1,88 @@
-import 'package:final_project/serial/serial_base.dart';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:usb_serial/usb_serial.dart';
-import 'dart:typed_data';
+
+import 'serial_base.dart';
 
 class SerialAndroidConnection extends SerialConnection {
   UsbPort? _port;
+  StreamSubscription<Uint8List>? _subscription;
   bool _connected = false;
 
-  SerialAndroidConnection(final Function(String meassage) onMessage)
-    : super(onMessage) {}
+  SerialAndroidConnection(super.onMessage);
 
   @override
   bool get connected => _connected;
 
   @override
-  Future<bool> connect(String portName, [int port = 115200]) async {
-    if (_connected && _port != null) {
+  Future<bool> connect(String portName, [int baudRate = 115200]) async {
+    await disconnect();
+    final devices = await UsbSerial.listDevices();
+    if (devices.isEmpty) {
+      return false;
+    }
+
+    UsbDevice device = devices.first;
+    for (final candidate in devices) {
+      if (candidate.deviceName == portName) {
+        device = candidate;
+        break;
+      }
+    }
+    if (device.deviceName != portName) {
+      debugPrint(
+        'USB device $portName was not found, using ${device.deviceName}',
+      );
+    }
+
+    final port = await device.create();
+    if (port == null || !await port.open()) {
+      debugPrint('Failed to open USB serial device ${device.deviceName}');
+      return false;
+    }
+    _port = port;
+    try {
+      await port.setDTR(true);
+      await port.setRTS(true);
+      await port.setPortParameters(
+        baudRate,
+        UsbPort.DATABITS_8,
+        UsbPort.STOPBITS_1,
+        UsbPort.PARITY_NONE,
+      );
+      _subscription = port.inputStream?.listen(
+        dataReceived,
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('USB serial error: $error');
+          unawaited(disconnect());
+        },
+      );
+      _connected = true;
       return true;
-    }
-    List<UsbDevice> devices = await UsbSerial.listDevices();
-    print(devices);
-    if (devices.length == 0) {
+    } catch (error) {
+      debugPrint('Failed to configure USB serial device $portName: $error');
+      await disconnect();
       return false;
     }
-    _port = await devices[0].create();
-
-    if (_port == null) {
-      return false;
-    }
-
-    bool openResult = await _port!.open();
-    if (!openResult) {
-      print("Failed to open");
-      return false;
-    }
-
-    await _port!.setDTR(true);
-    await _port!.setRTS(true);
-
-    _port!.setPortParameters(
-      115200,
-      UsbPort.DATABITS_8,
-      UsbPort.STOPBITS_1,
-      UsbPort.PARITY_NONE,
-    );
-
-    _port!.inputStream!.listen((Uint8List data) {
-      dataReceived(data);
-    });
-    _connected = true;
-
-    return true;
   }
 
   @override
   Future<void> disconnect() async {
-    _port?.close();
     _connected = false;
+    await _subscription?.cancel();
+    _subscription = null;
+    final port = _port;
+    _port = null;
+    if (port != null) {
+      await port.close();
+    }
+    resetBuffer();
   }
 
   @override
   Future<List<String>> getAvailableDevices() async {
-    List<UsbDevice> devices = await UsbSerial.listDevices();
-    List<String> deviceNames = devices
-        .map((device) => device.deviceName)
-        .toList();
-    return deviceNames;
+    final devices = await UsbSerial.listDevices();
+    return devices.map((device) => device.deviceName).toList();
   }
 }

@@ -1,7 +1,10 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:final_project/models/server_status.dart';
+import 'package:final_project/services/syren_topics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
@@ -13,12 +16,15 @@ class MqttService {
   String? _connectedHost;
   int? _connectedPort;
   int _connectionVersion = 0;
-  final String clientId;
-
-  Function(Map<String, dynamic>)? onUserPositionReceived;
-  Function(String, Map<String, dynamic>)? onSpeakerPositionReceived;
 
   MqttService({String? clientId}) : clientId = clientId ?? _createClientId();
+
+  final String clientId;
+  void Function(Map<String, dynamic>)? onUserPositionReceived;
+  VoidCallback? onUserPositionCleared;
+  void Function(String, Map<String, dynamic>)? onSpeakerPositionReceived;
+  void Function(String)? onSpeakerRemoved;
+  void Function(ServerStatus)? onServerStatus;
 
   bool get isConnected => _connected;
   String? get connectedHost => _connectedHost;
@@ -31,59 +37,48 @@ class MqttService {
 
     final connectionVersion = ++_connectionVersion;
     await _disconnectCurrentClient();
-
-    final client = MqttServerClient(brokerHost, clientId);
+    final client = MqttServerClient(brokerHost, clientId)
+      ..port = port
+      ..keepAlivePeriod = 20
+      ..autoReconnect = true
+      ..resubscribeOnAutoReconnect = true;
+    client.logging(on: false);
     _client = client;
     _connectedHost = brokerHost;
     _connectedPort = port;
-    client.port = port;
-    client.logging(on: false);
-    client.keepAlivePeriod = 20;
-    client.autoReconnect = true;
-    client.resubscribeOnAutoReconnect = true;
 
     client.onDisconnected = () {
       if (identical(_client, client)) {
         _connected = false;
-        print('Disconnected from broker');
+        debugPrint('Disconnected from MQTT broker');
       }
     };
-
     client.onConnected = () {
       if (identical(_client, client)) {
         _connected = true;
-        print('Connected to broker');
+        debugPrint('Connected to MQTT broker');
       }
     };
-
     client.onAutoReconnect = () {
       if (identical(_client, client)) {
         _connected = false;
-        print('Reconnecting to broker');
       }
     };
-
     client.onAutoReconnected = () {
       if (identical(_client, client)) {
         _connected = true;
-        print('Reconnected to broker');
       }
     };
-
-    client.onSubscribed = (String topic) {
-      print('Subscribed to topic: $topic');
-    };
-
-    final connMess = MqttConnectMessage()
+    client.onSubscribed = (topic) => debugPrint('Subscribed to $topic');
+    client.connectionMessage = MqttConnectMessage()
         .withClientIdentifier(clientId)
         .startClean()
         .withWillQos(MqttQos.atLeastOnce);
-    client.connectionMessage = connMess;
 
     try {
       await client.connect();
     } catch (error) {
-      print('Exception: $error');
+      debugPrint('MQTT connection failed: $error');
       if (identical(_client, client) &&
           connectionVersion == _connectionVersion) {
         await _disconnectCurrentClient();
@@ -92,38 +87,30 @@ class MqttService {
     }
 
     if (!identical(_client, client) ||
-        connectionVersion != _connectionVersion) {
+        connectionVersion != _connectionVersion ||
+        client.connectionStatus?.state != MqttConnectionState.connected) {
       client.autoReconnect = false;
       client.disconnect();
       return false;
     }
 
-    if (client.connectionStatus?.state != MqttConnectionState.connected) {
-      await _disconnectCurrentClient();
-      return false;
-    }
-
-    _updatesSubscription = client.updates!.listen((
-      List<MqttReceivedMessage<MqttMessage>> messages,
-    ) {
-      for (final message in messages) {
-        final recMess = message.payload as MqttPublishMessage;
-        final payload = MqttPublishPayload.bytesToStringAsString(
-          recMess.payload.message,
-        );
-        _handleMessage(message.topic, payload);
-      }
-    });
-
-    client.subscribe(
-      'SyrenSystem/SyrenServer/GetUserPosition',
-      MqttQos.atLeastOnce,
+    _updatesSubscription = client.updates!.listen(
+      (messages) {
+        for (final message in messages) {
+          final mqttMessage = message.payload as MqttPublishMessage;
+          final payload = MqttPublishPayload.bytesToStringAsString(
+            mqttMessage.payload.message,
+          );
+          handleMessage(message.topic, payload);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('MQTT message stream failed: $error');
+      },
     );
-    client.subscribe(
-      'SyrenSystem/SyrenServer/GetSpeakerPosition',
-      MqttQos.atLeastOnce,
-    );
-
+    client.subscribe('${SyrenTopics.speakerPosition}/#', MqttQos.atLeastOnce);
+    client.subscribe(SyrenTopics.userPosition, MqttQos.atMostOnce);
+    client.subscribe(SyrenTopics.serverStatus, MqttQos.atLeastOnce);
     return true;
   }
 
@@ -132,107 +119,171 @@ class MqttService {
     await _disconnectCurrentClient();
   }
 
+  bool publish(
+    String topic,
+    Object message, {
+    MqttQos qos = MqttQos.atLeastOnce,
+  }) {
+    final client = _client;
+    if (!_connected || client == null) {
+      return false;
+    }
+    try {
+      final builder = MqttClientPayloadBuilder()
+        ..addString(jsonEncode(message));
+      client.publishMessage(topic, qos, builder.payload!);
+      return true;
+    } catch (error) {
+      debugPrint('MQTT publish failed for $topic: $error');
+      return false;
+    }
+  }
+
+  bool sendDistance(String id, double distance) {
+    if (id.trim().isEmpty || !distance.isFinite || distance < 0) {
+      return false;
+    }
+    return publish(SyrenTopics.updateDistance, {
+      'id': id.toLowerCase(),
+      'distance': distance,
+    }, qos: MqttQos.atMostOnce);
+  }
+
+  bool sendConnect(String id, double volume) {
+    if (!_validVolume(id, volume)) {
+      return false;
+    }
+    return publish(SyrenTopics.connectSpeaker, {
+      'id': id.toLowerCase(),
+      'volume': volume,
+    });
+  }
+
+  bool sendDisconnect(String id) {
+    if (id.trim().isEmpty) {
+      return false;
+    }
+    return publish(SyrenTopics.disconnectSpeaker, {'id': id.toLowerCase()});
+  }
+
+  bool sendVolumeUpdate(String id, double volume) {
+    if (!_validVolume(id, volume)) {
+      return false;
+    }
+    return publish(SyrenTopics.setSpeakerVolume, {
+      'id': id.toLowerCase(),
+      'volume': volume,
+    });
+  }
+
+  @visibleForTesting
+  void handleMessage(String topic, String payload) {
+    if (topic == SyrenTopics.userPosition && payload.isEmpty) {
+      onUserPositionCleared?.call();
+      return;
+    }
+
+    final speakerPrefix = '${SyrenTopics.speakerPosition}/';
+    if (topic.startsWith(speakerPrefix)) {
+      final suffix = topic.substring(speakerPrefix.length);
+      if (suffix.isEmpty || suffix.contains('/')) {
+        return;
+      }
+      final sensorId = suffix.toLowerCase();
+      if (payload.isEmpty) {
+        onSpeakerRemoved?.call(sensorId);
+        return;
+      }
+      final data = _decodeMap(payload);
+      final payloadId = data?['id'];
+      final position = data?['position'];
+      if (payloadId is String &&
+          payloadId.toLowerCase() == sensorId &&
+          position is Map<String, dynamic> &&
+          _validPosition(position)) {
+        onSpeakerPositionReceived?.call(sensorId, position);
+      }
+      return;
+    }
+
+    final data = _decodeMap(payload);
+    if (data == null) {
+      return;
+    }
+    if (topic == SyrenTopics.userPosition) {
+      final position = data['position'];
+      if (position is Map<String, dynamic> && _validPosition(position)) {
+        onUserPositionReceived?.call(position);
+      }
+      return;
+    }
+    if (topic == SyrenTopics.serverStatus) {
+      final sessionId = data['sessionId'];
+      final stateId = data['stateId'];
+      final online = data['online'];
+      final rawSpeakerIds = data['connectedSpeakerIds'];
+      if (sessionId is! String ||
+          sessionId.isEmpty ||
+          stateId is! String ||
+          stateId.isEmpty ||
+          online is! bool ||
+          (rawSpeakerIds != null && rawSpeakerIds is! List)) {
+        return;
+      }
+      final speakerIds = <String>{};
+      if (rawSpeakerIds is List) {
+        for (final speakerId in rawSpeakerIds) {
+          if (speakerId is! String || speakerId.isEmpty) {
+            return;
+          }
+          speakerIds.add(speakerId.toLowerCase());
+        }
+      }
+      onServerStatus?.call(
+        ServerStatus(
+          sessionId: sessionId,
+          stateId: stateId,
+          online: online,
+          connectedSpeakerIds: speakerIds,
+        ),
+      );
+    }
+  }
+
   Future<void> _disconnectCurrentClient() async {
     final client = _client;
     _client = null;
     _connected = false;
     _connectedHost = null;
     _connectedPort = null;
-
     await _updatesSubscription?.cancel();
     _updatesSubscription = null;
-
     if (client != null) {
       client.autoReconnect = false;
       client.disconnect();
     }
   }
 
-  bool publish(String topic, String message) {
-    final builder = MqttClientPayloadBuilder();
-    builder.addString(message);
-    if (!_connected || _client == null) {
-      return false;
-    }
-    _client!.publishMessage(topic, MqttQos.exactlyOnce, builder.payload!);
-    return true;
-  }
-
-  bool sendDistance(
-    String rawDistanceData, [
-    String topic = "SyrenSystem/SyrenApp/UpdateDistance",
-  ]) {
-    Map<String, dynamic> distanceData = jsonDecode(rawDistanceData);
-    final dataToSend = {
-      "id": distanceData["id"].toLowerCase(),
-      "distance": distanceData['distance'],
-    };
-
-    final jsonToSend = jsonEncode(dataToSend);
-    if (_connected) {
-      publish(topic, jsonToSend);
-      return true;
-    }
-    return false;
-  }
-
-  bool connectSpeaker(String speakerMacAddress) {
-    String topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
-
-    final toSendData = {"id": speakerMacAddress.toLowerCase()};
-    final jsonToSend = jsonEncode(toSendData);
-    if (_connected) {
-      publish(topic, jsonToSend);
-      return true;
-    }
-    return false;
-  }
-
-  bool sendSpeakerConnectionInformation(String id, bool connected) {
-    String topic;
-    if (connected) {
-      topic = "SyrenSystem/SyrenApp/ConnectSpeaker";
-    } else {
-      topic = "SyrenSystem/SyrenApp/DisconnectSpeaker";
-    }
-
-    final toSendData = {"id": id.toLowerCase()};
-    final jsonToSend = jsonEncode(toSendData);
-    if (_connected) {
-      publish(topic, jsonToSend);
-      return true;
-    }
-    return false;
-  }
-
-  sendVolumeUpdate(String identifier, double value) {
-    final String topic = "SyrenSystem/SyrenApp/SetSpeakerVolume";
-    final toSendData = {
-      "id": identifier.toLowerCase(),
-      "volume": value.toInt(),
-    };
-    publish(topic, jsonEncode(toSendData));
-  }
-
-  void _handleMessage(String topic, String payload) {
+  Map<String, dynamic>? _decodeMap(String payload) {
     try {
-      final data = jsonDecode(payload) as Map<String, dynamic>;
-
-      if (topic == 'SyrenSystem/SyrenServer/GetUserPosition') {
-        if (data.containsKey('position')) {
-          onUserPositionReceived?.call(data['position']);
-        }
-      } else if (topic == 'SyrenSystem/SyrenServer/GetSpeakerPosition') {
-        if (data.containsKey('id') && data.containsKey('position')) {
-          onSpeakerPositionReceived?.call(
-            data['id'].toLowerCase(),
-            data['position'],
-          );
-        }
-      }
-    } catch (e) {
-      print('Error handling MQTT message: $e');
+      final decoded = jsonDecode(payload);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } on FormatException {
+      return null;
     }
+  }
+
+  bool _validVolume(String id, double volume) =>
+      id.trim().isNotEmpty && volume.isFinite && volume >= 0 && volume <= 100;
+
+  bool _validPosition(Map<String, dynamic> position) {
+    for (final coordinateName in const ['x', 'y', 'z']) {
+      final coordinate = position[coordinateName];
+      if (coordinate is! num || !coordinate.toDouble().isFinite) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static String _createClientId() {

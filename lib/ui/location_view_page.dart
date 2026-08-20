@@ -1,33 +1,25 @@
-import 'package:flutter/material.dart';
-import 'package:final_project/models/position_3d.dart';
-import 'package:final_project/models/speaker_data.dart';
-import 'package:final_project/ui/connect_speaker_page.dart';
 import 'dart:math' as math;
 
-class LocationViewPage extends StatefulWidget {
-  final Position3D? userPosition;
-  final List<SpeakerData> speakers;
+import 'package:final_project/models/position_3d.dart';
+import 'package:final_project/models/speaker_data.dart';
+import 'package:final_project/providers/app_state_providers.dart';
+import 'package:final_project/ui/connect_speaker_page.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-  const LocationViewPage({
-    super.key,
-    this.userPosition,
-    this.speakers = const [],
-  });
+class LocationViewPage extends ConsumerWidget {
+  const LocationViewPage({super.key});
 
   @override
-  State<LocationViewPage> createState() => _LocationViewPageState();
-}
-
-class _LocationViewPageState extends State<LocationViewPage> {
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final userPosition = ref.watch(userPositionProvider);
+    final speakers = ref.watch(speakersListProvider);
     return Stack(
       children: [
         // Background + content
         Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF0d121c),
-          ),
+          decoration: const BoxDecoration(color: Color(0xFF0d121c)),
           child: Column(
             children: [
               // Header text (NO icon inside here)
@@ -65,8 +57,8 @@ class _LocationViewPageState extends State<LocationViewPage> {
                       return CustomPaint(
                         size: Size(constraints.maxWidth, constraints.maxHeight),
                         painter: LocationPainter(
-                          userPosition: widget.userPosition,
-                          speakers: widget.speakers,
+                          userPosition: userPosition,
+                          speakers: speakers,
                         ),
                       );
                     },
@@ -77,10 +69,10 @@ class _LocationViewPageState extends State<LocationViewPage> {
           ),
         ),
 
-        // Floating icon ABOVE EVERYTHING (highest z-index)
+        // The add button stays above the canvas.
         Positioned(
           right: 24,
-          top: 60,   // adjust because header text is at 60px
+          top: 60, // adjust because header text is at 60px
           child: Container(
             width: 36,
             height: 36,
@@ -117,39 +109,33 @@ class LocationPainter extends CustomPainter {
   final Position3D? userPosition;
   final List<SpeakerData> speakers;
 
-  LocationPainter({
-    this.userPosition,
-    required this.speakers,
-  });
+  LocationPainter({this.userPosition, required this.speakers});
 
   @override
   void paint(Canvas canvas, Size size) {
-    // World-space bounds in X/Y (floor plane)
     double minX = 0, maxX = 300;
     double minY = 0, maxY = 300;
-
-    if (speakers.isNotEmpty) {
-      // Base bounds on speakers
-      minX = speakers.map((s) => s.position.x).reduce(math.min);
-      maxX = speakers.map((s) => s.position.x).reduce(math.max);
-      minY = speakers.map((s) => s.position.y).reduce(math.min);
-      maxY = speakers.map((s) => s.position.y).reduce(math.max);
-
-      // Include user position in bounds if present
-      if (userPosition != null) {
-        minX = math.min(minX, userPosition!.x);
-        maxX = math.max(maxX, userPosition!.x);
-        minY = math.min(minY, userPosition!.y);
-        maxY = math.max(maxY, userPosition!.y);
+    final positions = <Position3D>[
+      for (final speaker in speakers) speaker.position,
+      if (userPosition != null) userPosition!,
+    ];
+    if (positions.isNotEmpty) {
+      minX = maxX = positions.first.x;
+      minY = maxY = positions.first.y;
+      for (final position in positions.skip(1)) {
+        minX = math.min(minX, position.x);
+        maxX = math.max(maxX, position.x);
+        minY = math.min(minY, position.y);
+        maxY = math.max(maxY, position.y);
       }
-
-      // Compute world width/height before padding, avoid degenerate size
       var worldWidth = maxX - minX;
       var worldHeight = maxY - minY;
-      if (worldWidth == 0) worldWidth = 1;
-      if (worldHeight == 0) worldHeight = 1;
-
-      // Add padding in world space
+      if (worldWidth == 0) {
+        worldWidth = 1;
+      }
+      if (worldHeight == 0) {
+        worldHeight = 1;
+      }
       final paddingX = worldWidth * 0.2;
       final paddingY = worldHeight * 0.2;
       minX -= paddingX;
@@ -158,33 +144,23 @@ class LocationPainter extends CustomPainter {
       maxY += paddingY;
     }
 
-    // Recompute world size after padding
     var worldWidth = maxX - minX;
     var worldHeight = maxY - minY;
     if (worldWidth <= 0) worldWidth = 1;
     if (worldHeight <= 0) worldHeight = 1;
 
-    // Uniform scale to preserve distances
-    final scale = math.min(
-      size.width / worldWidth,
-      size.height / worldHeight,
-    );
+    final scale = math.min(size.width / worldWidth, size.height / worldHeight);
 
-    // Center the world rect in the canvas
     final offsetX = (size.width - worldWidth * scale) / 2;
     final offsetY = (size.height - worldHeight * scale) / 2;
 
-    // Convert 3D position (X/Y plane) to 2D screen coordinates
-    Offset toScreen(Position3D pos) {
-      final x = offsetX + (pos.x - minX) * scale;
-
-      // Flip vertically: larger Y goes "up" on the screen
-      final y = size.height - (offsetY + (pos.y - minY) * scale);
+    Offset toScreen(Position3D position) {
+      final x = offsetX + (position.x - minX) * scale;
+      final y = size.height - (offsetY + (position.y - minY) * scale);
 
       return Offset(x, y);
     }
 
-    // Draw connection lines from speakers to user
     if (userPosition != null) {
       final userOffset = toScreen(userPosition!);
       final linePaint = Paint()
@@ -198,9 +174,8 @@ class LocationPainter extends CustomPainter {
       }
     }
 
-    // Draw speakers
-    for (int i = 0; i < speakers.length; i++) {
-      final speaker = speakers[i];
+    for (var index = 0; index < speakers.length; index++) {
+      final speaker = speakers[index];
       final offset = toScreen(speaker.position);
 
       final bgPaint = Paint()
@@ -212,7 +187,7 @@ class LocationPainter extends CustomPainter {
 
       final textPainter = TextPainter(
         text: TextSpan(
-          text: 'Speaker ${i + 1}',
+          text: 'Speaker ${index + 1}',
           style: const TextStyle(
             color: Color(0xFFf0e68c),
             fontSize: 10,
@@ -228,7 +203,6 @@ class LocationPainter extends CustomPainter {
       );
     }
 
-    // Draw user position
     if (userPosition != null) {
       final userOffset = toScreen(userPosition!);
 
@@ -241,17 +215,15 @@ class LocationPainter extends CustomPainter {
     }
   }
 
-
-
   void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
     const dashWidth = 4;
     const dashSpace = 6;
     final distance = (end - start).distance;
     final dashCount = (distance / (dashWidth + dashSpace)).floor();
 
-    for (int i = 0; i < dashCount; i++) {
-      final startT = i * (dashWidth + dashSpace) / distance;
-      final endT = (i * (dashWidth + dashSpace) + dashWidth) / distance;
+    for (var index = 0; index < dashCount; index++) {
+      final startT = index * (dashWidth + dashSpace) / distance;
+      final endT = (index * (dashWidth + dashSpace) + dashWidth) / distance;
       canvas.drawLine(
         Offset.lerp(start, end, startT)!,
         Offset.lerp(start, end, endT)!,
@@ -265,7 +237,6 @@ class LocationPainter extends CustomPainter {
       ..color = const Color(0xFF0a101f)
       ..style = PaintingStyle.fill;
 
-    // Simple speaker shape
     final path = Path();
     path.moveTo(center.dx - 6, center.dy - 8);
     path.lineTo(center.dx - 6, center.dy + 8);
@@ -274,13 +245,14 @@ class LocationPainter extends CustomPainter {
     path.close();
     canvas.drawPath(path, paint);
 
-    // Sound waves
     canvas.drawArc(
       Rect.fromCircle(center: Offset(center.dx + 6, center.dy), radius: 4),
       -math.pi / 4,
       math.pi / 2,
       false,
-      paint..style = PaintingStyle.stroke..strokeWidth = 1.5,
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
     );
   }
 
@@ -289,30 +261,30 @@ class LocationPainter extends CustomPainter {
       ..color = const Color(0xFFf0e68c)
       ..style = PaintingStyle.fill;
 
-    // Head
     canvas.drawCircle(Offset(center.dx, center.dy - 10), 8, paint);
-
-    // Body
     final bodyPath = Path();
     bodyPath.moveTo(center.dx, center.dy - 2);
     bodyPath.lineTo(center.dx, center.dy + 10);
 
-    // Arms
     bodyPath.moveTo(center.dx - 8, center.dy + 2);
     bodyPath.lineTo(center.dx + 8, center.dy + 2);
 
-    // Legs
     bodyPath.moveTo(center.dx, center.dy + 10);
     bodyPath.lineTo(center.dx - 6, center.dy + 20);
     bodyPath.moveTo(center.dx, center.dy + 10);
     bodyPath.lineTo(center.dx + 6, center.dy + 20);
 
-    canvas.drawPath(bodyPath, paint..style = PaintingStyle.stroke..strokeWidth = 2.5);
+    canvas.drawPath(
+      bodyPath,
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
   }
 
   @override
   bool shouldRepaint(LocationPainter oldDelegate) {
     return oldDelegate.userPosition != userPosition ||
-        oldDelegate.speakers != speakers;
+        !listEquals(oldDelegate.speakers, speakers);
   }
 }
