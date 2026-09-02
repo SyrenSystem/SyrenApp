@@ -4,6 +4,7 @@ import 'package:final_project/models/distance_item.dart';
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/server_status.dart';
 import 'package:final_project/models/speaker_data.dart';
+import 'package:final_project/models/system_configuration.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 
@@ -19,6 +20,30 @@ final speakersListProvider = Provider<List<SpeakerData>>(
 );
 final serverOnlineProvider = StateProvider<bool>((ref) => false);
 final selectedNavIndexProvider = StateProvider<int>((ref) => 0);
+final systemConfigurationProvider = StateProvider<SystemConfiguration?>(
+  (ref) => null,
+);
+final systemRuntimeProvider = StateProvider<SystemRuntime?>((ref) => null);
+
+final sensorDisplayNamesProvider = Provider<Map<String, String>>((ref) {
+  final configuration = ref.watch(systemConfigurationProvider);
+  if (configuration == null) {
+    return const {};
+  }
+  return {
+    for (final speaker in configuration.speakers)
+      if (speaker.sensorId case final sensorId?)
+        sensorId.toLowerCase(): speaker.name,
+  };
+});
+
+String? sensorDisplayName(Map<String, String> names, DistanceItem item) {
+  final configuredName = names[item.id.toLowerCase()];
+  if (configuredName != null) {
+    return configuredName;
+  }
+  return item.label == 'unknown' ? null : item.label;
+}
 
 final desiredSpeakerConnectionsProvider =
     StateNotifierProvider<DesiredSpeakerConnectionsNotifier, Map<String, bool>>(
@@ -65,35 +90,6 @@ class DistanceItemsNotifier extends StateNotifier<List<DistanceItem>> {
     _refreshFromBox();
   }
 
-  void updateVolume(String id, double volume) {
-    final item = _box.get(id);
-    if (item == null) {
-      return;
-    }
-    item.volume = volume;
-    _refreshFromBox();
-  }
-
-  Future<void> commitVolume(String id, double volume) async {
-    final item = _box.get(id);
-    if (item == null) {
-      return;
-    }
-    item.volume = volume;
-    await item.save();
-    _refreshFromBox();
-  }
-
-  Future<void> commitLabel(String id, String label) async {
-    final item = _box.get(id);
-    if (item == null) {
-      return;
-    }
-    item.label = label;
-    await item.save();
-    _refreshFromBox();
-  }
-
   void _refreshFromBox() {
     state = _activeItems(_box);
   }
@@ -112,6 +108,11 @@ class DesiredSpeakerConnectionsNotifier
 
   Future<void> setDesired(String id, bool connected) async {
     await _connections.put(id.toLowerCase(), connected);
+    _refresh();
+  }
+
+  Future<void> forget(String id) async {
+    await _connections.delete(id.toLowerCase());
     _refresh();
   }
 
@@ -137,6 +138,13 @@ class DesiredSpeakerConnectionsNotifier
           await _connections.put(id, true);
         }
       }
+      final staleIds = [
+        for (final entry in _connections.toMap().entries)
+          if (entry.value == false &&
+              !status.connectedSpeakerIds.contains(entry.key))
+            entry.key,
+      ];
+      await _connections.deleteAll(staleIds);
     }
     _refresh();
     return state;

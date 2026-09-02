@@ -54,7 +54,8 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
+  remove_alpha_ios: true
   image_path: "assets/pics/icon_black.png"
   min_sdk_android: 16 # android min sdk min:16, default 21
   adaptive_icon_background: "#000000"  # solid black background

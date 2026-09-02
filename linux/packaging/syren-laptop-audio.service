@@ -1,0 +1,18 @@
+[Unit]
+Description=SyrenSystem laptop audio sender
+After=pipewire.service pipewire-pulse.service network-online.target syrensystem-stack.service
+Wants=network-online.target
+Requires=pipewire.service pipewire-pulse.service
+PartOf=pipewire.service pipewire-pulse.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/syrensystem/audio-sender.conf
+ExecCondition=/bin/sh -c 'command -v pactl >/dev/null 2>&1 && command -v pw-record >/dev/null 2>&1 && command -v nc >/dev/null 2>&1'
+ExecStart=/usr/lib/syrensystem/syren-laptop-audio-sender
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

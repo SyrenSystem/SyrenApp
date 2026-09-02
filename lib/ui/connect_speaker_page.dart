@@ -225,12 +225,26 @@ class ConnectSpeakerPage extends ConsumerWidget {
 
                                     if (context.mounted) {
                                       if (success) {
+                                        final configuration = ref.read(
+                                          systemConfigurationProvider,
+                                        );
+                                        final configuredSpeaker = configuration
+                                            ?.speakerForSensor(
+                                              closestSpeakerId,
+                                            );
+                                        final ungrouped =
+                                            configuration != null &&
+                                            configuredSpeaker != null &&
+                                            !configuration.isSpeakerGrouped(
+                                              configuredSpeaker.id,
+                                            );
                                         ScaffoldMessenger.of(
                                           context,
                                         ).showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              "Speaker $closestSpeakerId connected for mapping!",
+                                              'Speaker $closestSpeakerId connected for mapping!'
+                                              '${ungrouped ? ' Add it to a playback group to hear audio.' : ''}',
                                             ),
                                             backgroundColor: const Color(
                                               0xFFd4af37,

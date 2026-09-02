@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:final_project/models/distance_item.dart';
+import 'package:final_project/models/server_status.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/providers/services_providers.dart';
@@ -156,6 +157,25 @@ void main() {
     expect(mqttService.isConnected, isTrue);
   });
 
+  test('unsupported serial platform explains the limitation', () async {
+    const unsupportedMessage = 'USB serial is unavailable on this platform.';
+    final mqttService = FakeMqttService();
+    final serialService = FakeSerialService(
+      connectResult: false,
+      unavailableReason: unsupportedMessage,
+    );
+    final container = createContainer(mqttService, serialService);
+    addTearDown(container.dispose);
+
+    final error = await container
+        .read(measurementControllerProvider)
+        .startMeasurement();
+
+    expect(error, unsupportedMessage);
+    expect(serialService.connectCalls, 0);
+    expect(mqttService.isConnected, isTrue);
+  });
+
   test('first reading is stored and published', () async {
     final mqttService = FakeMqttService();
     final serialService = FakeSerialService(connectResult: true);
@@ -176,22 +196,74 @@ void main() {
     expect(mqttService.disconnectCalls, 0);
   });
 
-  test('speaker connection includes the saved volume', () async {
+  test(
+    'speaker connection sends only the sensor id and records intent',
+    () async {
+      final mqttService = FakeMqttService();
+      final serialService = FakeSerialService(connectResult: true);
+      final container = createContainer(mqttService, serialService);
+      addTearDown(container.dispose);
+      container
+          .read(distanceItemsProvider.notifier)
+          .add(DistanceItem(id: 'sensor', distance: 20, volume: 37));
+
+      final connected = await container
+          .read(measurementControllerProvider)
+          .connectSpeaker('sensor');
+
+      expect(connected, isTrue);
+      expect(mqttService.connectRequests, ['sensor']);
+      expect(container.read(desiredSpeakerConnectionsProvider), {
+        'sensor': true,
+      });
+    },
+  );
+
+  test('server status replays only the missing connections', () async {
+    SharedPreferences.setMockInitialValues({'ip': 'broker', 'port': 1883});
+    await Hive.box<bool>(
+      'speaker_connections',
+    ).putAll({'a': true, 'b': true, 'c': false});
+    await Hive.box<String>('syren_metadata').put('server_state_id', 'state');
     final mqttService = FakeMqttService();
-    final serialService = FakeSerialService(connectResult: true);
-    final container = createContainer(mqttService, serialService);
+    final serialService = FakeSerialService(connectResult: false);
+    final container = ProviderContainer(
+      overrides: [
+        mqttServiceProvider.overrideWithValue(mqttService),
+        serialServiceProvider.overrideWithValue(serialService),
+      ],
+    );
     addTearDown(container.dispose);
-    container
-        .read(distanceItemsProvider.notifier)
-        .add(DistanceItem(id: 'sensor', distance: 20, volume: 37));
+    final connectionSubscription = container.listen(
+      mqttConnectionProvider,
+      (previous, next) {},
+      fireImmediately: true,
+    );
+    addTearDown(connectionSubscription.close);
+    await waitUntil(() => mqttService.connectedEndpoints.isNotEmpty);
 
-    final connected = await container
-        .read(measurementControllerProvider)
-        .connectSpeaker('sensor');
+    mqttService.onServerStatus?.call(
+      const ServerStatus(
+        sessionId: 'session',
+        stateId: 'state',
+        online: true,
+        connectedSpeakerIds: {'b', 'c'},
+      ),
+    );
+    await waitUntil(
+      () =>
+          mqttService.connectRequests.length +
+              mqttService.disconnectRequests.length >=
+          2,
+    );
 
-    expect(connected, isTrue);
-    expect(mqttService.connectRequests, [('sensor', 37)]);
-    expect(container.read(desiredSpeakerConnectionsProvider), {'sensor': true});
+    expect(mqttService.connectRequests, ['a']);
+    expect(mqttService.disconnectRequests, ['c']);
+    expect(container.read(desiredSpeakerConnectionsProvider), {
+      'a': true,
+      'b': true,
+      'c': false,
+    });
   });
 }
 
@@ -225,9 +297,8 @@ class FakeMqttService extends MqttService {
 
   final List<bool> _connectionResults;
   final List<(String, double)> sentDistances = [];
-  final List<(String, double)> connectRequests = [];
+  final List<String> connectRequests = [];
   final List<String> disconnectRequests = [];
-  final List<(String, double)> volumeUpdates = [];
   final List<(String, int)> connectedEndpoints = [];
   bool _isConnected = true;
   int disconnectCalls = 0;
@@ -251,20 +322,14 @@ class FakeMqttService extends MqttService {
   }
 
   @override
-  bool sendConnect(String id, double volume) {
-    connectRequests.add((id, volume));
+  bool sendConnect(String id) {
+    connectRequests.add(id);
     return _isConnected;
   }
 
   @override
   bool sendDisconnect(String id) {
     disconnectRequests.add(id);
-    return _isConnected;
-  }
-
-  @override
-  bool sendVolumeUpdate(String id, double volume) {
-    volumeUpdates.add((id, volume));
     return _isConnected;
   }
 
@@ -279,10 +344,13 @@ class FakeSerialService extends SerialService {
   FakeSerialService({
     required this.connectResult,
     this.availableDevices = const ['sensor'],
+    this.unavailableReason,
   });
 
   final bool connectResult;
   final List<String> availableDevices;
+  @override
+  final String? unavailableReason;
   bool connected = false;
   int connectCalls = 0;
   int disconnectCalls = 0;

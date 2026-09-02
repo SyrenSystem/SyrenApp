@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:final_project/models/distance_item.dart';
 import 'package:final_project/models/server_status.dart';
 import 'package:final_project/providers/app_state_providers.dart';
-import 'package:final_project/services/mqtt_service.dart';
-import 'package:final_project/services/volume_commit_coordinator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
@@ -79,55 +77,82 @@ void main() {
     expect(notifier.stateId, 'new-state');
   });
 
+  test('the same server state keeps local intent, adopts unknown speakers '
+      'and drops stale disconnected entries', () async {
+    await connectionsBox.putAll({'keep': true, 'remove': false});
+    await metadataBox.put('server_state_id', 'state');
+    final notifier = DesiredSpeakerConnectionsNotifier(
+      connectionsBox,
+      metadataBox,
+    );
+
+    final result = await notifier.reconcileStatus(
+      const ServerStatus(
+        sessionId: 'session',
+        stateId: 'state',
+        online: true,
+        connectedSpeakerIds: {'server-speaker'},
+      ),
+    );
+
+    expect(result, {'keep': true, 'server-speaker': true});
+  });
+
   test(
-    'the same server state keeps local intent and adopts unknown speakers',
+    'a disconnected entry the server still lists is kept until it disappears',
     () async {
-      await connectionsBox.putAll({'keep': true, 'remove': false});
+      await connectionsBox.putAll({'leaving': false});
       await metadataBox.put('server_state_id', 'state');
       final notifier = DesiredSpeakerConnectionsNotifier(
         connectionsBox,
         metadataBox,
       );
 
-      final result = await notifier.reconcileStatus(
+      final stillListed = await notifier.reconcileStatus(
         const ServerStatus(
           sessionId: 'session',
           stateId: 'state',
           online: true,
-          connectedSpeakerIds: {'server-speaker'},
+          connectedSpeakerIds: {'leaving'},
+        ),
+      );
+      final gone = await notifier.reconcileStatus(
+        const ServerStatus(
+          sessionId: 'session',
+          stateId: 'state',
+          online: true,
+          connectedSpeakerIds: {},
         ),
       );
 
-      expect(result, {'keep': true, 'remove': false, 'server-speaker': true});
+      expect(stillListed, {'leaving': false});
+      expect(gone, isEmpty);
     },
   );
 
-  test('volume changes coalesce into one persisted publish', () async {
-    final item = DistanceItem(id: 'sensor', distance: 10);
-    await distanceBox.put(item.id, item);
-    final distanceItems = DistanceItemsNotifier(distanceBox);
-    final mqttService = RecordingMqttService();
-    final coordinator = VolumeCommitCoordinator(distanceItems, mqttService);
+  test('forget removes the desired connection entry', () async {
+    await connectionsBox.putAll({'aa:bb': true});
+    final notifier = DesiredSpeakerConnectionsNotifier(
+      connectionsBox,
+      metadataBox,
+    );
 
-    coordinator.update('sensor', 10);
-    coordinator.update('sensor', 20);
-    coordinator.update('sensor', 30);
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await notifier.forget('AA:BB');
 
-    expect(distanceBox.get('sensor')?.volume, 30);
-    expect(mqttService.volumeUpdates, [('sensor', 30)]);
-    coordinator.dispose();
+    expect(notifier.state, isEmpty);
   });
-}
 
-class RecordingMqttService extends MqttService {
-  RecordingMqttService() : super(clientId: 'test-client');
+  test('sensor display name prefers the configured speaker name', () {
+    final item = DistanceItem(id: 'aa:bb', label: 'Old label');
 
-  final List<(String, double)> volumeUpdates = [];
+    expect(sensorDisplayName({'aa:bb': 'Kitchen'}, item), 'Kitchen');
+  });
 
-  @override
-  bool sendVolumeUpdate(String id, double volume) {
-    volumeUpdates.add((id, volume));
-    return true;
-  }
+  test('falls back to the local label unless it is unknown', () {
+    expect(
+      sensorDisplayName(const {}, DistanceItem(id: 'aa:bb', label: 'Desk')),
+      'Desk',
+    );
+    expect(sensorDisplayName(const {}, DistanceItem(id: 'aa:bb')), isNull);
+  });
 }

@@ -1,8 +1,4 @@
-import 'dart:async';
-
-import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/settings_provider.dart';
-import 'package:final_project/util/format.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,7 +16,6 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
-    final distanceItems = ref.watch(distanceItemsProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -113,64 +108,6 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
                   ),
                 ),
               ),
-              if (distanceItems.isNotEmpty) ...[
-                const SizedBox(height: 40),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFd4af37).withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'SENSOR LABELS',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 2,
-                          color: const Color(0xFFd4af37).withValues(alpha: 0.8),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      for (
-                        var index = 0;
-                        index < distanceItems.length;
-                        index++
-                      ) ...[
-                        if (index > 0)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Divider(
-                              color: const Color(
-                                0xFFd4af37,
-                              ).withValues(alpha: 0.1),
-                              height: 1,
-                            ),
-                          ),
-                        Text(
-                          abbreviateId(distanceItems[index].id),
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SensorLabelField(
-                          key: ValueKey(distanceItems[index].id),
-                          id: distanceItems[index].id,
-                          label: distanceItems[index].label,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -215,78 +152,6 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
   }
 }
 
-class SensorLabelField extends ConsumerStatefulWidget {
-  const SensorLabelField({required this.id, required this.label, super.key});
-
-  final String id;
-  final String label;
-
-  @override
-  ConsumerState<SensorLabelField> createState() => _SensorLabelFieldState();
-}
-
-class _SensorLabelFieldState extends ConsumerState<SensorLabelField> {
-  late final TextEditingController _controller;
-  late final FocusNode _focusNode;
-  late String _lastCommittedLabel;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.label);
-    _lastCommittedLabel = widget.label;
-    _focusNode = FocusNode()..addListener(_handleFocusChange);
-  }
-
-  @override
-  void didUpdateWidget(SensorLabelField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_focusNode.hasFocus && widget.label != _lastCommittedLabel) {
-      _controller.text = widget.label;
-      _lastCommittedLabel = widget.label;
-    }
-  }
-
-  void _handleFocusChange() {
-    if (!_focusNode.hasFocus) {
-      unawaited(_commit());
-    }
-  }
-
-  Future<void> _commit() async {
-    final label = _controller.text;
-    if (label == _lastCommittedLabel) {
-      return;
-    }
-    _lastCommittedLabel = label;
-    await ref
-        .read(distanceItemsProvider.notifier)
-        .commitLabel(widget.id, label);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _InputField(
-      controller: _controller,
-      focusNode: _focusNode,
-      label: 'Label',
-      hint: 'Enter label',
-      icon: Icons.label,
-      keyboardType: TextInputType.text,
-      onSubmitted: (_) => unawaited(_commit()),
-    );
-  }
-
-  @override
-  void dispose() {
-    _focusNode
-      ..removeListener(_handleFocusChange)
-      ..dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-}
-
 class _InputField extends StatelessWidget {
   const _InputField({
     required this.controller,
@@ -294,8 +159,6 @@ class _InputField extends StatelessWidget {
     required this.hint,
     required this.icon,
     required this.keyboardType,
-    this.focusNode,
-    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -303,8 +166,6 @@ class _InputField extends StatelessWidget {
   final String hint;
   final IconData icon;
   final TextInputType keyboardType;
-  final FocusNode? focusNode;
-  final ValueChanged<String>? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -318,9 +179,7 @@ class _InputField extends StatelessWidget {
       ),
       child: TextField(
         controller: controller,
-        focusNode: focusNode,
         keyboardType: keyboardType,
-        onSubmitted: onSubmitted,
         style: const TextStyle(color: Colors.white, fontSize: 16),
         decoration: InputDecoration(
           labelText: label,

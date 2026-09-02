@@ -9,6 +9,10 @@ class SerialService {
   void Function(String id, double distance)? onDistanceReceived;
 
   bool get isConnected => _serialConnection?.connected ?? false;
+  String? get unavailableReason {
+    _serialConnection ??= SerialConnection.create(handleLine);
+    return _serialConnection!.unavailableReason;
+  }
 
   void initialize() {
     _serialConnection = SerialConnection.create(handleLine);

@@ -2,10 +2,23 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:final_project/serial/serial_base.dart';
+import 'package:final_project/serial/serial_ios.dart';
 import 'package:final_project/services/serial_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('iOS serial connection reports the hardware limitation', () async {
+    final connection = SerialIosConnection((message) {});
+
+    expect(connection.connected, isFalse);
+    expect(
+      connection.unavailableReason,
+      SerialIosConnection.unsupportedMessage,
+    );
+    expect(await connection.getAvailableDevices(), isEmpty);
+    expect(await connection.connect('sensor'), isFalse);
+  });
+
   test('frames LF and CRLF lines across chunks', () {
     final messages = <String>[];
     final connection = TestSerialConnection(messages.add);

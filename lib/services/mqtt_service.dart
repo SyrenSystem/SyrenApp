@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:final_project/models/server_status.dart';
+import 'package:final_project/models/system_configuration.dart';
 import 'package:final_project/services/syren_topics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
@@ -16,6 +17,7 @@ class MqttService {
   String? _connectedHost;
   int? _connectedPort;
   int _connectionVersion = 0;
+  final Map<String, Completer<CommandResult>> _pendingCommands = {};
 
   MqttService({String? clientId}) : clientId = clientId ?? _createClientId();
 
@@ -25,6 +27,9 @@ class MqttService {
   void Function(String, Map<String, dynamic>)? onSpeakerPositionReceived;
   void Function(String)? onSpeakerRemoved;
   void Function(ServerStatus)? onServerStatus;
+  void Function(SystemConfiguration)? onConfiguration;
+  void Function(SystemRuntime)? onRuntime;
+  void Function(CommandResult)? onCommandResult;
 
   bool get isConnected => _connected;
   String? get connectedHost => _connectedHost;
@@ -97,11 +102,15 @@ class MqttService {
     _updatesSubscription = client.updates!.listen(
       (messages) {
         for (final message in messages) {
-          final mqttMessage = message.payload as MqttPublishMessage;
-          final payload = MqttPublishPayload.bytesToStringAsString(
-            mqttMessage.payload.message,
-          );
-          handleMessage(message.topic, payload);
+          try {
+            final mqttMessage = message.payload as MqttPublishMessage;
+            final payload = MqttPublishPayload.bytesToStringAsString(
+              mqttMessage.payload.message,
+            );
+            handleMessage(message.topic, payload);
+          } catch (error) {
+            debugPrint('Failed to handle message on ${message.topic}: $error');
+          }
         }
       },
       onError: (Object error, StackTrace stackTrace) {
@@ -111,6 +120,9 @@ class MqttService {
     client.subscribe('${SyrenTopics.speakerPosition}/#', MqttQos.atLeastOnce);
     client.subscribe(SyrenTopics.userPosition, MqttQos.atMostOnce);
     client.subscribe(SyrenTopics.serverStatus, MqttQos.atLeastOnce);
+    client.subscribe(SyrenTopics.configuration, MqttQos.atLeastOnce);
+    client.subscribe(SyrenTopics.runtime, MqttQos.atLeastOnce);
+    client.subscribe('${SyrenTopics.commandResult}/#', MqttQos.atLeastOnce);
     return true;
   }
 
@@ -149,14 +161,11 @@ class MqttService {
     }, qos: MqttQos.atMostOnce);
   }
 
-  bool sendConnect(String id, double volume) {
-    if (!_validVolume(id, volume)) {
+  bool sendConnect(String id) {
+    if (id.trim().isEmpty) {
       return false;
     }
-    return publish(SyrenTopics.connectSpeaker, {
-      'id': id.toLowerCase(),
-      'volume': volume,
-    });
+    return publish(SyrenTopics.connectSpeaker, {'id': id.toLowerCase()});
   }
 
   bool sendDisconnect(String id) {
@@ -166,14 +175,73 @@ class MqttService {
     return publish(SyrenTopics.disconnectSpeaker, {'id': id.toLowerCase()});
   }
 
-  bool sendVolumeUpdate(String id, double volume) {
-    if (!_validVolume(id, volume)) {
-      return false;
-    }
-    return publish(SyrenTopics.setSpeakerVolume, {
-      'id': id.toLowerCase(),
-      'volume': volume,
-    });
+  Future<CommandResult?> configureSpeaker({
+    required int expectedRevision,
+    required String name,
+    required String snapClientId,
+    required String? sensorId,
+    required double fullVolumeDistance,
+    required double muteDistance,
+    String? speakerId,
+  }) {
+    return _sendCommand(SyrenTopics.configureSpeaker, {
+      'speakerId': speakerId,
+      'name': name,
+      'snapClientId': snapClientId,
+      'sensorId': sensorId,
+      'fullVolumeDistance': fullVolumeDistance,
+      'muteDistance': muteDistance,
+    }, expectedRevision);
+  }
+
+  Future<CommandResult?> deleteSpeaker({
+    required int expectedRevision,
+    required String speakerId,
+  }) {
+    return _sendCommand(SyrenTopics.deleteSpeaker, {
+      'speakerId': speakerId,
+    }, expectedRevision);
+  }
+
+  Future<CommandResult?> upsertGroup({
+    required int expectedRevision,
+    required String? groupId,
+    required String name,
+    required List<String> speakerIds,
+    required List<String> sourcePriority,
+    required String volumeMode,
+    required double masterVolume,
+    required bool muted,
+  }) {
+    return _sendCommand(SyrenTopics.upsertGroup, {
+      'groupId': groupId,
+      'name': name,
+      'speakerIds': speakerIds,
+      'sourcePriority': sourcePriority,
+      'volumeMode': volumeMode,
+      'masterVolume': masterVolume,
+      'muted': muted,
+    }, expectedRevision);
+  }
+
+  Future<CommandResult?> deleteGroup({
+    required int expectedRevision,
+    required String groupId,
+  }) {
+    return _sendCommand(SyrenTopics.deleteGroup, {
+      'groupId': groupId,
+    }, expectedRevision);
+  }
+
+  Future<CommandResult?> setSpeakerLevel({
+    required int expectedRevision,
+    required String speakerId,
+    required double level,
+  }) {
+    return _sendCommand(SyrenTopics.setSpeakerLevel, {
+      'speakerId': speakerId,
+      'level': level,
+    }, expectedRevision);
   }
 
   @visibleForTesting
@@ -208,6 +276,29 @@ class MqttService {
 
     final data = _decodeMap(payload);
     if (data == null) {
+      return;
+    }
+    if (topic == SyrenTopics.configuration) {
+      final configuration = _parse(topic, data, SystemConfiguration.fromJson);
+      if (configuration != null) {
+        onConfiguration?.call(configuration);
+      }
+      return;
+    }
+    if (topic == SyrenTopics.runtime) {
+      final runtime = _parse(topic, data, SystemRuntime.fromJson);
+      if (runtime != null) {
+        onRuntime?.call(runtime);
+      }
+      return;
+    }
+    if (topic == SyrenTopics.commandResult ||
+        topic.startsWith('${SyrenTopics.commandResult}/')) {
+      final result = _parse(topic, data, CommandResult.fromJson);
+      if (result != null) {
+        _pendingCommands.remove(result.requestId)?.complete(result);
+        onCommandResult?.call(result);
+      }
       return;
     }
     if (topic == SyrenTopics.userPosition) {
@@ -258,6 +349,12 @@ class MqttService {
     _connectedPort = null;
     await _updatesSubscription?.cancel();
     _updatesSubscription = null;
+    for (final command in _pendingCommands.values) {
+      if (!command.isCompleted) {
+        command.completeError(StateError('MQTT disconnected'));
+      }
+    }
+    _pendingCommands.clear();
     if (client != null) {
       client.autoReconnect = false;
       client.disconnect();
@@ -273,8 +370,46 @@ class MqttService {
     }
   }
 
-  bool _validVolume(String id, double volume) =>
-      id.trim().isNotEmpty && volume.isFinite && volume >= 0 && volume <= 100;
+  Future<CommandResult?> _sendCommand(
+    String topic,
+    Map<String, dynamic> fields,
+    int expectedRevision,
+  ) async {
+    final requestId = _createRequestId();
+    final completion = Completer<CommandResult>();
+    _pendingCommands[requestId] = completion;
+    final sent = publish(topic, {
+      'requestId': requestId,
+      'expectedRevision': expectedRevision,
+      ...fields,
+    });
+    if (!sent) {
+      _pendingCommands.remove(requestId);
+      return null;
+    }
+    try {
+      return await completion.future.timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      return null;
+    } on StateError {
+      return null;
+    } finally {
+      _pendingCommands.remove(requestId);
+    }
+  }
+
+  T? _parse<T>(
+    String topic,
+    Map<String, dynamic> data,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    try {
+      return fromJson(data);
+    } catch (error) {
+      debugPrint('Ignoring malformed message on $topic: $error');
+      return null;
+    }
+  }
 
   bool _validPosition(Map<String, dynamic> position) {
     for (final coordinateName in const ['x', 'y', 'z']) {
@@ -295,5 +430,13 @@ class MqttService {
         .toRadixString(16)
         .padLeft(4, '0');
     return 'SyrenApp-$randomPart-$timePart';
+  }
+
+  static String _createRequestId() {
+    final randomPart = Random.secure()
+        .nextInt(0x100000000)
+        .toRadixString(16)
+        .padLeft(8, '0');
+    return '${DateTime.now().microsecondsSinceEpoch}-$randomPart';
   }
 }

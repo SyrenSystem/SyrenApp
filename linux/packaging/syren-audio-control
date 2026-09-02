@@ -1,0 +1,113 @@
+#!/bin/sh
+set -eu
+
+configuration_root="${XDG_CONFIG_HOME:-$HOME/.config}/syrensystem"
+state_file="$configuration_root/laptop-audio-state"
+virtual_sink="SyrenSystem"
+
+mkdir -p "$configuration_root"
+
+current_default_sink() {
+  pactl get-default-sink
+}
+
+sink_exists() {
+  pactl list short sinks | awk -v wanted_sink="$1" '$2 == wanted_sink { found = 1 } END { exit !found }'
+}
+
+first_physical_sink() {
+  pactl list short sinks | awk -v virtual_sink="$virtual_sink" '$2 != virtual_sink { print $2; exit }'
+}
+
+ensure_virtual_sink() {
+  if sink_exists "$virtual_sink"; then
+    printf '%s\n' present
+    return
+  fi
+  pactl load-module module-null-sink \
+    sink_name="$virtual_sink" \
+    sink_properties=device.description=SyrenSystem >/dev/null
+  printf '%s\n' created
+}
+
+move_streams() {
+  target_sink="$1"
+  pactl list short sink-inputs | while read -r stream_index remaining_fields; do
+    if [ -n "$stream_index" ]; then
+      pactl move-sink-input "$stream_index" "$target_sink" \
+        || printf 'Could not move stream %s\n' "$stream_index" >&2
+    fi
+  done
+}
+
+read_state() {
+  enabled_state="disabled"
+  previous_sink=""
+  if [ -f "$state_file" ]; then
+    enabled_state="$(sed -n '1p' "$state_file")"
+    previous_sink="$(sed -n '2p' "$state_file")"
+  fi
+}
+
+write_state() {
+  enabled_state="$1"
+  previous_sink="$2"
+  temporary_state="$state_file.tmp"
+  printf '%s\n%s\n' "$enabled_state" "$previous_sink" > "$temporary_state"
+  mv "$temporary_state" "$state_file"
+}
+
+enable_audio() {
+  read_state
+  ensure_virtual_sink >/dev/null
+  default_sink="$(current_default_sink)"
+  if [ "$default_sink" != "$virtual_sink" ]; then
+    previous_sink="$default_sink"
+  fi
+  pactl set-default-sink "$virtual_sink"
+  write_state enabled "$previous_sink"
+  move_streams "$virtual_sink"
+}
+
+disable_audio() {
+  read_state
+  default_sink="$(current_default_sink)"
+  if [ "$default_sink" = "$virtual_sink" ]; then
+    target_sink="$previous_sink"
+    if [ -z "$target_sink" ] || ! sink_exists "$target_sink"; then
+      target_sink="$(first_physical_sink)"
+    fi
+    if [ -n "$target_sink" ]; then
+      pactl set-default-sink "$target_sink"
+      move_streams "$target_sink"
+    fi
+  fi
+  write_state disabled "$previous_sink"
+}
+
+command_name="${1:-status}"
+case "$command_name" in
+  enable)
+    enable_audio
+    ;;
+  disable)
+    disable_audio
+    ;;
+  apply)
+    read_state
+    if [ "$enabled_state" = enabled ]; then
+      enable_audio
+    fi
+    ;;
+  ensure-sink)
+    ensure_virtual_sink
+    ;;
+  status)
+    read_state
+    printf '%s\n' "$enabled_state"
+    ;;
+  *)
+    printf '%s\n' 'Usage: syren-audio-control enable|disable|apply|ensure-sink|status' >&2
+    exit 2
+    ;;
+esac

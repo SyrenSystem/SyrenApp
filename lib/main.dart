@@ -1,8 +1,9 @@
-import 'package:final_project/ui/volume_control_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
 import 'package:final_project/ui/settings_page_widget.dart';
+import 'package:final_project/ui/playback_groups_page.dart';
+import 'package:final_project/ui/speaker_setup_page.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/providers/services_providers.dart';
@@ -27,7 +28,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Syren App',
+      title: 'SyrenSystem',
+      theme: ThemeData.dark().copyWith(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFd4af37),
+          brightness: Brightness.dark,
+        ),
+      ),
       home: const MainPage(),
       debugShowCheckedModeBanner: false,
     );
@@ -85,11 +92,8 @@ class _MainPageState extends ConsumerState<MainPage> {
 
     final List<Widget> pages = [
       const LocationViewPage(),
-
-      // Volume Control Page
-      VolumeControlPage(),
-
-      // Settings Page
+      const PlaybackGroupsPage(),
+      const SpeakerSetupPage(),
       const SettingsPageWidget(),
     ];
 
@@ -212,8 +216,8 @@ class _MainPageState extends ConsumerState<MainPage> {
                         },
                       ),
                       _buildNavItem(
-                        icon: Icons.volume_up_rounded,
-                        label: 'Volume',
+                        icon: Icons.speaker_group,
+                        label: 'Playback',
                         index: 1,
                         isSelected: selectedNavIndex == 1,
                         onTap: () {
@@ -221,12 +225,21 @@ class _MainPageState extends ConsumerState<MainPage> {
                         },
                       ),
                       _buildNavItem(
-                        icon: Icons.settings,
-                        label: 'Settings',
+                        icon: Icons.speaker,
+                        label: 'Speakers',
                         index: 2,
                         isSelected: selectedNavIndex == 2,
                         onTap: () {
                           ref.read(selectedNavIndexProvider.notifier).state = 2;
+                        },
+                      ),
+                      _buildNavItem(
+                        icon: Icons.settings,
+                        label: 'Settings',
+                        index: 3,
+                        isSelected: selectedNavIndex == 3,
+                        onTap: () {
+                          ref.read(selectedNavIndexProvider.notifier).state = 3;
                         },
                       ),
                     ],
@@ -247,33 +260,36 @@ class _MainPageState extends ConsumerState<MainPage> {
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? const Color(0xFFd4af37)
-                  : const Color(0xFF808080),
-              size: 32,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: TextStyle(
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
                 color: isSelected
                     ? const Color(0xFFd4af37)
                     : const Color(0xFF808080),
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
+                size: 28,
               ),
-            ),
-          ],
+              const SizedBox(height: 5),
+              Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected
+                      ? const Color(0xFFd4af37)
+                      : const Color(0xFF808080),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -286,6 +302,7 @@ class _ConnectedSensorsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final distanceItems = ref.watch(distanceItemsProvider);
+    final displayNames = ref.watch(sensorDisplayNamesProvider);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -322,6 +339,7 @@ class _ConnectedSensorsPanel extends ConsumerWidget {
               ),
               itemBuilder: (context, index) {
                 final item = distanceItems[index];
+                final displayName = sensorDisplayName(displayNames, item);
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
@@ -339,10 +357,10 @@ class _ConnectedSensorsPanel extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (item.label != 'unknown')
+                      if (displayName != null)
                         Expanded(
                           child: Text(
-                            item.label,
+                            displayName,
                             style: TextStyle(
                               color: const Color(
                                 0xFFd4af37,

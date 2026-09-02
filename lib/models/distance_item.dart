@@ -8,6 +8,7 @@ class DistanceItem extends HiveObject {
   double distance;
   @HiveField(1)
   String label;
+  // Legacy field, the server owns speaker levels now and this is no longer written.
   @HiveField(2)
   double volume;
   bool active;

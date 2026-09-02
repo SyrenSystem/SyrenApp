@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:final_project/serial/serial_android.dart';
 import 'package:final_project/serial/serial_desktop.dart';
+import 'package:final_project/serial/serial_ios.dart';
 
 typedef SerialMessageCallback = void Function(String message);
 
@@ -17,10 +18,14 @@ abstract class SerialConnection {
   SerialConnection(this.onMessage);
 
   bool get connected;
+  String? get unavailableReason => null;
 
   static SerialConnection create(SerialMessageCallback onMessage) {
     if (Platform.isAndroid) {
       return SerialAndroidConnection(onMessage);
+    }
+    if (Platform.isIOS) {
+      return SerialIosConnection(onMessage);
     }
     return SerialDesktopConnection(onMessage);
   }

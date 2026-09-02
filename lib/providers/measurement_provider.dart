@@ -20,6 +20,11 @@ class MeasurementController {
       return 'Could not connect to MQTT.';
     }
 
+    final unavailableReason = serialService.unavailableReason;
+    if (unavailableReason != null) {
+      return unavailableReason;
+    }
+
     serialService.onDistanceReceived = (id, distance) {
       ref
           .read(distanceItemsProvider.notifier)
@@ -61,7 +66,7 @@ class MeasurementController {
     await ref
         .read(desiredSpeakerConnectionsProvider.notifier)
         .setDesired(id, true);
-    return ref.read(mqttServiceProvider).sendConnect(id, item.volume);
+    return ref.read(mqttServiceProvider).sendConnect(id);
   }
 
   bool get isConnected => ref.read(serialServiceProvider).isConnected;

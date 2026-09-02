@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SyrenSystem
+Comment=Configure SyrenSystem speakers and playback
+Exec=syren-app
+Icon=com.syrensystem.app
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=true
+StartupWMClass=com.syrensystem.app

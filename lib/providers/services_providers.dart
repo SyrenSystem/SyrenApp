@@ -5,9 +5,11 @@ import 'package:final_project/models/speaker_data.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/settings_provider.dart';
 import 'package:final_project/services/mqtt_service.dart';
+import 'package:final_project/services/local_audio_service.dart';
 import 'package:final_project/services/serial_service.dart';
-import 'package:final_project/services/volume_commit_coordinator.dart';
+import 'package:final_project/services/speaker_name_migration.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive/hive.dart';
 
 final mqttServiceProvider = Provider<MqttService>((ref) {
   final service = MqttService();
@@ -71,16 +73,21 @@ final mqttConnectionProvider = FutureProvider<bool>((ref) async {
           .read(desiredSpeakerConnectionsProvider.notifier)
           .reconcileStatus(status);
       for (final entry in desired.entries) {
-        if (entry.value) {
-          final item = ref
-              .read(distanceItemsProvider.notifier)
-              .getById(entry.key);
-          mqttService.sendConnect(entry.key, item?.volume ?? 0);
-        } else {
+        final listed = status.connectedSpeakerIds.contains(entry.key);
+        if (entry.value && !listed) {
+          mqttService.sendConnect(entry.key);
+        } else if (!entry.value && listed) {
           mqttService.sendDisconnect(entry.key);
         }
       }
     }());
+  };
+  mqttService.onConfiguration = (configuration) {
+    ref.read(systemConfigurationProvider.notifier).state = configuration;
+    unawaited(ref.read(speakerNameMigrationProvider).run(configuration));
+  };
+  mqttService.onRuntime = (runtime) {
+    ref.read(systemRuntimeProvider.notifier).state = runtime;
   };
 
   if (settings.ip.isEmpty || settings.port <= 0) {
@@ -103,13 +110,18 @@ final serialServiceProvider = Provider<SerialService>((ref) {
   return service;
 });
 
-final volumeCommitCoordinatorProvider = Provider<VolumeCommitCoordinator>((
-  ref,
-) {
-  final coordinator = VolumeCommitCoordinator(
+final localAudioServiceProvider = Provider<LocalAudioService>((ref) {
+  return LocalAudioService();
+});
+
+final localAudioEnabledProvider = FutureProvider<bool?>((ref) {
+  return ref.watch(localAudioServiceProvider).status();
+});
+
+final speakerNameMigrationProvider = Provider<SpeakerNameMigration>((ref) {
+  return SpeakerNameMigration(
     ref.read(distanceItemsProvider.notifier),
+    Hive.box<String>('syren_metadata'),
     ref.read(mqttServiceProvider),
   );
-  ref.onDispose(coordinator.dispose);
-  return coordinator;
 });
