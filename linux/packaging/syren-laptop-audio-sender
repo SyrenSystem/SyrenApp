@@ -10,6 +10,8 @@ audio_control="$sender_directory/../../bin/syren-audio-control"
 if [ ! -x "$audio_control" ]; then
   audio_control="syren-audio-control"
 fi
+capture_fifo="${XDG_RUNTIME_DIR:-/tmp}/syren-laptop-audio-$$.fifo"
+trap 'kill "${record_pid:-}" 2>/dev/null; rm -f "$capture_fifo"' EXIT INT TERM
 netcat_help="$(nc -h 2>&1 || true)"
 case "$netcat_help" in
   *-N*) netcat_close_options="-N" ;;
@@ -27,6 +29,9 @@ while true; do
     "$audio_control" apply || printf 'Could not apply the laptop audio state.\n' >&2
     apply_pending=0
   fi
+  # A fifo lets the loop stop pw-record when the connection drops, since an idle sink never writes and would keep it alive.
+  rm -f "$capture_fifo"
+  mkfifo -m 600 "$capture_fifo"
   pw-record \
     --raw \
     --rate 48000 \
@@ -34,7 +39,11 @@ while true; do
     --format s16 \
     --latency 20ms \
     -P '{ "stream.capture.sink": true, "node.dont-fallback": true, "node.dont-reconnect": true }' \
-    --target "$virtual_sink" - \
-    | nc $netcat_close_options "$server_host" "$server_port" || true
+    --target "$virtual_sink" - > "$capture_fifo" &
+  record_pid=$!
+  nc $netcat_close_options "$server_host" "$server_port" < "$capture_fifo" || true
+  kill "$record_pid" 2>/dev/null || true
+  wait "$record_pid" 2>/dev/null || true
+  rm -f "$capture_fifo"
   sleep 1
 done
