@@ -4,9 +4,11 @@ set -eu
 server_host="${SYREN_SERVER_HOST:-127.0.0.1}"
 server_port="${SYREN_SERVER_PORT:-4953}"
 virtual_sink="SyrenSystem"
-audio_control="syren-audio-control"
-if ! command -v "$audio_control" >/dev/null 2>&1 && [ -x "$HOME/.local/bin/syren-audio-control" ]; then
-  audio_control="$HOME/.local/bin/syren-audio-control"
+# Prefer the control script installed next to this sender so a stale copy on PATH cannot shadow it.
+sender_directory="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+audio_control="$sender_directory/../../bin/syren-audio-control"
+if [ ! -x "$audio_control" ]; then
+  audio_control="syren-audio-control"
 fi
 netcat_help="$(nc -h 2>&1 || true)"
 case "$netcat_help" in
