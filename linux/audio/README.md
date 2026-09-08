@@ -16,7 +16,7 @@ The results are in `build/debian`. The laptop package includes the Flutter app, 
 Install the receiver package in a visible receiver terminal with interactive sudo. No password is collected or stored by the app. Select the receiver interface address, discovered Snapclient ID, SSH user and control group during configuration:
 
 ```sh
-sudo apt install ./syren-rtp-receiver_1.1.0_all.deb
+sudo apt install ./syren-rtp-receiver_1.2.0_all.deb
 sudo syren-rtp-configure --address 192.168.1.50 --snapclient-id RECEIVER_ID --control-user LISTENER --control-group syren-audio
 ```
 
