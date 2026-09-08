@@ -1,0 +1,551 @@
+#!/usr/bin/env python3
+"""Control the reversible laptop to HiFiBerry RTP experiment."""
+
+import argparse
+import fcntl
+import glob
+import json
+import logging
+import logging.handlers
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+
+DIRECTORY = Path(__file__).resolve().parent
+STATE_ROOT = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'syren-rtp'
+STATE = STATE_ROOT / 'state.json'
+REMOTE_SCRIPT = '/usr/local/lib/syren-rtp/pi.py'
+LIVE_SINK = 'SyrenSystem_Live'
+SENDER_SERVICE = 'syren-laptop-audio.service'
+APP_STATE = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'syrensystem/laptop-audio-state'
+stopping = False
+
+
+def run(arguments, check=True, timeout=12, **options):
+    return subprocess.run(arguments, text=True, capture_output=True, check=check,
+                          timeout=timeout, **options)
+
+
+def write_state(state):
+    STATE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = STATE.with_suffix('.tmp')
+    with temporary.open('w') as output:
+        json.dump(state, output, indent=2)
+        output.flush()
+        os.fsync(output.fileno())
+    temporary.replace(STATE)
+
+
+def identity(process_id):
+    try:
+        content = Path(f'/proc/{process_id}/stat').read_text()
+        if content.rsplit(')', 1)[1].split()[0] == 'Z':
+            return None
+        return [str(process_id), content.rsplit(')', 1)[1].split()[19],
+                Path('/proc/sys/kernel/random/boot_id').read_text().strip()]
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+
+
+def alive(saved_identity):
+    return bool(saved_identity and identity(saved_identity[0]) == saved_identity)
+
+
+def signal_process(saved_identity, signum=signal.SIGTERM):
+    if alive(saved_identity):
+        os.kill(int(saved_identity[0]), signum)
+
+
+def ssh_arguments(host, command, terminal=False):
+    return ['ssh', '-tt' if terminal else '-T', '-o', 'BatchMode=no' if terminal else 'BatchMode=yes',
+            '-o', 'ConnectTimeout=6', '-o', 'ServerAliveInterval=2',
+            '-o', 'ServerAliveCountMax=3', host, shlex.join(command)]
+
+
+def remote_request(state, payload):
+    result = run(ssh_arguments(state['host'], [REMOTE_SCRIPT, 'request', '--session',
+                 state['session'], '--payload', json.dumps(payload)]))
+    return json.loads(result.stdout)
+
+
+def service_active():
+    result = run(['systemctl', '--user', 'show', SENDER_SERVICE, '-p', 'ActiveState', '--value'])
+    return result.stdout.strip()
+
+
+def stop_sender():
+    run(['systemctl', '--user', 'stop', '--no-block', SENDER_SERVICE])
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service_active() in ('inactive', 'failed', ''):
+            return
+        time.sleep(0.1)
+    run(['systemctl', '--user', 'kill', '--signal=SIGKILL', '--kill-whom=all', SENDER_SERVICE])
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if service_active() in ('inactive', 'failed', ''):
+            return
+        time.sleep(0.1)
+    raise RuntimeError('The existing sender did not stop')
+
+
+def snapshot():
+    sinks = json.loads(run(['pactl', '--format=json', 'list', 'sinks']).stdout)
+    sink_names = {item['index']: item['name'] for item in sinks}
+    streams = json.loads(run(['pactl', '--format=json', 'list', 'sink-inputs']).stdout)
+    return {'default': run(['pactl', 'get-default-sink']).stdout.strip(),
+            'sinks': sink_names,
+            'streams': {str(item['index']): {'sink': sink_names.get(item['sink']),
+                        'serial': item.get('properties', {}).get('object.serial')}
+                        for item in streams}}
+
+
+def apply_snapshot(wanted, from_sink):
+    current = snapshot()
+    available = set(current['sinks'].values())
+    if current['default'] == from_sink and wanted['default'] in available:
+        run(['pactl', 'set-default-sink', wanted['default']])
+    for stream_id, previous in wanted['streams'].items():
+        present = current['streams'].get(stream_id)
+        if (present and previous['serial'] and present['serial'] == previous['serial']
+                and present['sink'] == from_sink and previous['sink'] in available):
+            result = run(['pactl', 'move-sink-input', stream_id, previous['sink']], check=False)
+            if result.returncode:
+                remaining = snapshot()['streams'].get(stream_id)
+                if remaining == present:
+                    raise RuntimeError(f'Could not restore stream {stream_id}')
+
+
+def desired_restore(state, current):
+    previous = state['routing']
+    wanted = json.loads(json.dumps(current))
+    fallback = previous['default']
+    available = set(current['sinks'].values())
+    if fallback not in available:
+        fallback = next((name for name in available if name != LIVE_SINK), None)
+    if wanted['default'] == LIVE_SINK:
+        wanted['default'] = fallback
+    for stream_id, stream in wanted['streams'].items():
+        if stream['sink'] != LIVE_SINK:
+            continue
+        original = previous['streams'].get(stream_id)
+        if original and original['serial'] == stream['serial'] and original['sink'] in available:
+            stream['sink'] = original['sink']
+        else:
+            stream['sink'] = wanted['default']
+    return wanted
+
+
+def wait_for_sender():
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        main_process = run(['systemctl', '--user', 'show', SENDER_SERVICE,
+                            '-p', 'MainPID', '--value']).stdout.strip()
+        try:
+            children = Path(f'/proc/{main_process}/task/{main_process}/children').read_text().split()
+            if any(Path(f'/proc/{child}/comm').read_text().strip() == 'pw-record' for child in children):
+                return
+        except FileNotFoundError:
+            pass
+        time.sleep(0.1)
+    raise RuntimeError('Sender did not reach capture startup; run stop again to retry cleanup')
+
+
+def restore_sender(state):
+    if not state.get('sender_changed') or not state['sender_was_active']:
+        return
+    if service_active() == 'active' and 'restart_routing' not in state:
+        state['sender_changed'] = False
+        write_state(state)
+        return
+    if 'restart_routing' not in state:
+        state['restart_routing'] = snapshot()
+        state['restart_app_state'] = APP_STATE.read_text() if APP_STATE.exists() else None
+        write_state(state)
+    if service_active() != 'active':
+        run(['systemctl', '--user', 'start', SENDER_SERVICE])
+    wait_for_sender()
+    apply_snapshot(state['restart_routing'], 'SyrenSystem')
+    old_app_state = state['restart_app_state']
+    expected_app_state = 'enabled\n' + state['restart_routing']['default'] + '\n'
+    if old_app_state and old_app_state.startswith('enabled\n') and APP_STATE.exists():
+        if APP_STATE.read_text() == expected_app_state:
+            APP_STATE.write_text(old_app_state)
+    state['sender_changed'] = False
+    write_state(state)
+
+
+def cleanup():
+    STATE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (STATE_ROOT / 'cleanup.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not STATE.exists():
+            return
+        state = json.loads(STATE.read_text())
+        problems = []
+        signal_process(state.get('launcher_process'))
+        if state.get('remote_started'):
+            try:
+                remote_request(state, {'action': 'stop'})
+            except Exception:
+                pass
+        try:
+            current = snapshot()
+            wanted = desired_restore(state, current)
+            apply_snapshot(wanted, LIVE_SINK)
+        except Exception as error:
+            problems.append(f'Routing restore: {error}')
+        signal_process(state.get('sender_process'))
+        try:
+            restore_sender(state)
+        except Exception as error:
+            problems.append(f'Sender restore: {error}')
+        if state.get('remote_started'):
+            try:
+                deadline = time.monotonic() + 25
+                while time.monotonic() < deadline:
+                    result = run(ssh_arguments(state['host'], ['systemctl', 'is-active', 'syren-rtp.service']), check=False)
+                    if result.stdout.strip() in ('inactive', 'failed', 'unknown'):
+                        break
+                    time.sleep(0.5)
+                else:
+                    raise RuntimeError('Pi receiver unit has not stopped')
+                recovery = run(ssh_arguments(state['host'], ['test', '!', '-e', '/var/lib/syren-rtp/state.json']), check=False)
+                if recovery.returncode:
+                    raise RuntimeError('Pi restoration is pending; inspect its journal and run sudo pi.py restore')
+                completed = run(ssh_arguments(state['host'], ['cat', '/var/lib/syren-rtp/last-state.json']), check=False)
+                restored = json.loads(completed.stdout) if completed.returncode == 0 else {}
+                if restored.get('session') == state['session'] and restored.get('snap_active'):
+                    snap = run(ssh_arguments(state['host'], ['systemctl', 'is-active', 'snapclient.service']), check=False)
+                    if snap.stdout.strip() != 'active':
+                        raise RuntimeError('Snapclient has not returned to its previous active state')
+            except Exception as error:
+                problems.append(f'Pi restore: {error}')
+        if problems:
+            state['cleanup_errors'] = problems
+            write_state(state)
+            raise RuntimeError('; '.join(problems))
+        state['stopped_at'] = time.time()
+        (Path(state['directory']) / 'state.json').write_text(json.dumps(state, indent=2))
+        STATE.unlink()
+
+
+def guard():
+    sender = None
+    try:
+        for line in sys.stdin:
+            request = json.loads(line)
+            if request['action'] != 'sender' or sender:
+                raise RuntimeError('Invalid guardian request')
+            state = json.loads(STATE.read_text())
+            directory = Path(state['directory'])
+            sender = subprocess.Popen(['pipewire', '-c', str(directory / 'sender.conf')],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                env=dict(os.environ, PIPEWIRE_CONFIG_DIR=str(directory), PIPEWIRE_DEBUG='3'))
+            def log_sender():
+                logger = logging.getLogger('sender')
+                logger.setLevel(logging.INFO)
+                handler = logging.handlers.RotatingFileHandler(
+                    directory / 'sender.log', maxBytes=10 * 1024 * 1024, backupCount=3)
+                logger.addHandler(handler)
+                for line in sender.stdout:
+                    logger.info(line.rstrip())
+                handler.close()
+            threading.Thread(target=log_sender, daemon=True).start()
+            state['sender_process'] = identity(sender.pid)
+            write_state(state)
+            print(json.dumps({'sender_process': state['sender_process']}), flush=True)
+    finally:
+        cleanup()
+        if sender:
+            sender.wait(timeout=10)
+
+
+def local_check():
+    required = ['pipewire', 'pactl', 'pw-dump', 'pw-top', 'pw-metadata', 'ssh', 'scp', 'systemctl']
+    missing = [command for command in required if not shutil.which(command)]
+    if missing:
+        raise RuntimeError('Missing laptop commands: ' + ', '.join(missing))
+    module = glob.glob('/usr/lib/*/pipewire-0.3/libpipewire-module-rtp-sink.so')
+    if not module:
+        raise RuntimeError('Install the distribution libpipewire-0.3-modules package')
+    version = run(['pipewire', '--version']).stdout
+    if 'libpipewire 1.4.2' not in version:
+        raise RuntimeError('This prototype is verified against laptop PipeWire 1.4.2')
+    snapshot()
+    return {'pipewire': version, 'rtp_module': module}
+
+
+def prepare(arguments):
+    report = {'laptop': local_check(), 'host': arguments.host}
+    staging = run(ssh_arguments(arguments.host, ['mktemp', '-d', '/tmp/syren-rtp-XXXXXXXX'])).stdout.strip()
+    if not re.fullmatch('/tmp/syren-rtp-[A-Za-z0-9]+', staging):
+        raise RuntimeError('Unexpected remote staging directory')
+    try:
+        run(['scp', '-q', '-r', str(DIRECTORY / 'pi.py'), str(DIRECTORY / 'install-pi.sh'),
+             str(DIRECTORY / 'templates'), f'{arguments.host}:{staging}/'])
+        if arguments.install:
+            result = subprocess.call(ssh_arguments(arguments.host,
+                ['sudo', 'sh', staging + '/install-pi.sh'], terminal=True))
+            if result:
+                raise RuntimeError('Pi installation did not complete')
+        result = run(ssh_arguments(arguments.host, ['python3', staging + '/pi.py', 'check']), check=False)
+        report['pi'] = json.loads(result.stdout)
+        report['installed_wrapper'] = run(ssh_arguments(arguments.host,
+            ['test', '-x', REMOTE_SCRIPT]), check=False).returncode == 0
+        STATE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+        (STATE_ROOT / 'prepare.json').write_text(json.dumps(report, indent=2))
+        print(json.dumps(report, indent=2))
+        return 0 if report['pi']['ready'] and report['installed_wrapper'] else 1
+    finally:
+        run(ssh_arguments(arguments.host, ['rm', '-rf', '--', staging]), check=False)
+
+
+def stop_signal(signum, frame):
+    global stopping
+    stopping = True
+
+
+def start(arguments):
+    local_check()
+    STATE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (STATE_ROOT / 'start.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if STATE.exists():
+            raise RuntimeError('A session or pending recovery exists. Run status, then stop.')
+        if LIVE_SINK in snapshot()['sinks'].values():
+            raise RuntimeError('A SyrenSystem Live sink already exists')
+        check_result = run(ssh_arguments(arguments.host, [REMOTE_SCRIPT, 'check']), check=False)
+        if check_result.returncode:
+            raise RuntimeError('Pi is not prepared: ' + check_result.stdout + check_result.stderr)
+        hostname = arguments.host.split('@')[-1]
+        pi_address = socket.getaddrinfo(hostname, 46000, socket.AF_INET, socket.SOCK_DGRAM)[0][4][0]
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect((pi_address, 46000))
+            local_address = probe.getsockname()[0]
+        sender_state = service_active()
+        if sender_state not in ('active', 'inactive', 'failed', ''):
+            raise RuntimeError('Laptop sender is changing state; retry when it settles')
+        session = uuid.uuid4().hex
+        directory = STATE_ROOT / session
+        directory.mkdir(mode=0o700)
+        state = {'session': session, 'host': arguments.host, 'pi_ip': pi_address,
+                 'local_ip': local_address, 'directory': str(directory),
+                 'controller': identity(os.getpid()), 'routing': snapshot(),
+                 'sender_was_active': sender_state == 'active',
+                 'pi_before': json.loads(check_result.stdout),
+                 'latency_ms': arguments.latency, 'started_at': time.time()}
+        write_state(state)
+        log = (directory / 'controller.log').open('a')
+        guardian = subprocess.Popen([str(DIRECTORY / 'syren-rtp'), '_guard'],
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log,
+                                    start_new_session=True, text=True)
+        channel = None
+        launcher = None
+        try:
+            state['remote_started'] = True
+            write_state(state)
+            print('Authenticate sudo on the Pi in this terminal. Receiver starts muted.', flush=True)
+            launcher = subprocess.Popen(ssh_arguments(arguments.host,
+                ['sudo', REMOTE_SCRIPT, 'launch', '--session', session, '--latency', str(arguments.latency)],
+                terminal=True))
+            state['launcher_process'] = identity(launcher.pid)
+            write_state(state)
+            deadline = time.monotonic() + 180
+            while time.monotonic() < deadline and not stopping:
+                if launcher.poll() is not None:
+                    raise RuntimeError('Pi launcher exited; inspect sudo output and the Pi journal')
+                try:
+                    remote_request(state, {'action': 'heartbeat'})
+                    break
+                except (subprocess.SubprocessError, ValueError):
+                    time.sleep(0.3)
+            else:
+                raise RuntimeError('Receiver startup cancelled or timed out')
+            channel = subprocess.Popen(ssh_arguments(arguments.host,
+                [REMOTE_SCRIPT, 'channel', '--session', session]), stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=log, text=True)
+            state['routing'] = snapshot()
+            write_state(state)
+            if state['sender_was_active']:
+                state['sender_changed'] = True
+                write_state(state)
+                stop_sender()
+                remote_request(state, {'action': 'heartbeat'})
+            configuration = (DIRECTORY / 'templates/sender.conf.in').read_text()
+            substitutions = {'REMOTE': os.environ.get('PIPEWIRE_REMOTE', 'pipewire-0'),
+                             'LOCAL_IP': local_address, 'PI_IP': pi_address}
+            for key, value in substitutions.items():
+                if not re.fullmatch('[A-Za-z0-9_.:/-]+', value):
+                    raise RuntimeError('Invalid PipeWire remote name')
+                configuration = configuration.replace('@' + key + '@', value)
+            configuration_path = directory / 'sender.conf'
+            configuration_path.write_text(configuration)
+            if stopping:
+                raise RuntimeError('Startup cancelled')
+            guardian.stdin.write('{"action":"sender"}\n')
+            guardian.stdin.flush()
+            if not select.select([guardian.stdout], [], [], 5)[0]:
+                raise RuntimeError('Sender guardian did not respond')
+            json.loads(guardian.stdout.readline())
+            state = json.loads(STATE.read_text())
+            deadline = time.monotonic() + 6
+            while LIVE_SINK not in snapshot()['sinks'].values():
+                if not alive(state['sender_process']) or time.monotonic() > deadline or stopping:
+                    raise RuntimeError('RTP sink failed to appear')
+                time.sleep(0.1)
+            if stopping:
+                raise RuntimeError('Startup cancelled')
+            state['routing'] = snapshot()
+            write_state(state)
+            run(['pactl', 'set-default-sink', LIVE_SINK])
+            for stream_id in state['routing']['streams']:
+                current = snapshot()['streams'].get(stream_id)
+                old_stream = state['routing']['streams'][stream_id]
+                if current and current == old_stream and current['serial']:
+                    run(['pactl', 'move-sink-input', stream_id, LIVE_SINK], check=False)
+            print(f'RTP ready, receiver muted at 10%. Session: {directory}', flush=True)
+            print('Use volume unmute for the first quiet check. Ctrl+C or stop restores playback.', flush=True)
+            next_sample = 0
+            while not stopping:
+                if (not alive(state['sender_process']) or launcher.poll() is not None
+                        or channel.poll() is not None or guardian.poll() is not None):
+                    raise RuntimeError('An endpoint exited; restoring playback')
+                channel.stdin.write('{"action":"heartbeat","expect_rtp":true}\n')
+                channel.stdin.flush()
+                if not select.select([channel.stdout], [], [], 5)[0]:
+                    raise RuntimeError('Pi heartbeat response timed out')
+                reply = json.loads(channel.stdout.readline())
+                if reply.get('error'):
+                    raise RuntimeError(reply['error'])
+                if time.monotonic() >= next_sample:
+                    with (directory / 'laptop-telemetry.jsonl').open('a') as output:
+                        output.write(json.dumps({'timestamp': time.time(), 'receiver': reply,
+                            'pw_top': run(['pw-top', '-b', '-n', '2'], check=False, timeout=4).stdout}) + '\n')
+                    next_sample = time.monotonic() + 30
+                time.sleep(1)
+        finally:
+            if channel:
+                channel.terminate()
+            try:
+                cleanup()
+            finally:
+                if launcher and launcher.poll() is None:
+                    launcher.terminate()
+                guardian.stdin.close()
+                guardian.wait(timeout=50)
+                log.close()
+
+
+def collect_session(arguments):
+    state = json.loads(STATE.read_text()) if STATE.exists() else json.loads(
+        (Path(arguments.session_directory) / 'state.json').read_text())
+    destination = Path(arguments.output or (Path(state['directory']) / f'collection-{int(time.time())}'))
+    destination.mkdir(mode=0o700, parents=True)
+    (destination / 'state.json').write_text(json.dumps(state, indent=2))
+    for source in Path(state['directory']).iterdir():
+        if source.is_file():
+            shutil.copy2(source, destination / source.name)
+    for name, command in {'pw-dump.json': ['pw-dump'], 'pw-top.txt': ['pw-top', '-b', '-n', '2'],
+                          'settings.txt': ['pw-metadata', '-n', 'settings'],
+                          'sinks.json': ['pactl', '--format=json', 'list', 'sinks'],
+                          'streams.json': ['pactl', '--format=json', 'list', 'sink-inputs'],
+                          'network.txt': ['ip', '-s', 'link']}.items():
+        result = run(command, check=False, timeout=6)
+        (destination / name).write_text(result.stdout + result.stderr)
+    remote_directory = '/run/syren-rtp/' + state['session']
+    copy = run(['scp', '-q', '-r', f"{state['host']}:{remote_directory}", str(destination / 'pi')], check=False)
+    (destination / 'pi-copy.txt').write_text(copy.stderr)
+    journal = run(ssh_arguments(state['host'], ['journalctl', '-u', 'syren-rtp.service',
+        '--since', '@' + str(int(state['started_at'])), '--no-pager']), check=False)
+    (destination / 'pi-unit.log').write_text(journal.stdout + journal.stderr)
+    print(destination)
+    return copy.returncode
+
+
+def host_name(value):
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+@[A-Za-z0-9][A-Za-z0-9_.-]*', value) or value.startswith('-'):
+        raise argparse.ArgumentTypeError('Use user@hostname or user@IPv4')
+    return value
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host', type=host_name, default='yme@hifiberry.local')
+    commands = parser.add_subparsers(dest='command', required=True)
+    prepare_parser = commands.add_parser('prepare')
+    prepare_parser.add_argument('--install', action='store_true')
+    start_parser = commands.add_parser('start')
+    start_parser.add_argument('--latency', type=int, choices=[20, 15, 10, 30, 40], default=20)
+    commands.add_parser('stop')
+    commands.add_parser('status')
+    commands.add_parser('_guard', help=argparse.SUPPRESS)
+    volume_parser = commands.add_parser('volume')
+    volume_parser.add_argument('setting', help='mute, unmute, or a percentage in steps of at most 10')
+    collect_parser = commands.add_parser('collect')
+    collect_parser.add_argument('--output')
+    collect_parser.add_argument('--session-directory')
+    arguments = parser.parse_args()
+    os.umask(0o077)
+    for signum in [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]:
+        signal.signal(signum, stop_signal)
+    if arguments.command == 'prepare':
+        return prepare(arguments)
+    if arguments.command == 'start':
+        start(arguments)
+    if arguments.command == '_guard':
+        guard()
+    if arguments.command == 'stop':
+        if STATE.exists():
+            state = json.loads(STATE.read_text())
+            signal_process(state.get('controller'))
+        STATE_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with (STATE_ROOT / 'start.lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            cleanup()
+        print('Prototype stopped; saved state restored.')
+    if arguments.command in ['status', 'volume']:
+        if not STATE.exists():
+            print('Prototype is stopped.')
+            return 0 if arguments.command == 'status' else 1
+        state = json.loads(STATE.read_text())
+        if arguments.command == 'status':
+            state['controller_alive'] = alive(state.get('controller'))
+            try:
+                state['receiver'] = remote_request(state, {'action': 'status'})
+            except Exception as error:
+                state['receiver_error'] = str(error)
+            print(json.dumps(state, indent=2))
+        else:
+            status = remote_request(state, {'action': 'status'})
+            setting = arguments.setting
+            payload = {'action': 'volume', 'percent': status['percent'], 'muted': status['muted']}
+            if setting in ['mute', 'unmute']:
+                payload['muted'] = setting == 'mute'
+            else:
+                payload['percent'] = int(setting)
+            print(json.dumps(remote_request(state, payload), indent=2))
+    if arguments.command == 'collect':
+        if not STATE.exists() and not arguments.session_directory:
+            parser.error('Use --session-directory to collect a stopped session')
+        return collect_session(arguments)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as error:
+        print(f'RTP prototype: {error}', file=sys.stderr)
+        sys.exit(1)
