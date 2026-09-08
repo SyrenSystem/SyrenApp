@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "versions": {
+    "1.4.2": {
+      "class": "tested",
+      "evidence": [
+        "linux/experiments/rtp/tests/smoke_pipewire.py: native L16 packet format and muted graph",
+        "linux/experiments/rtp/tests/smoke_desktop.py: desktop port inspection regression",
+        "linux/audio/tests/test_ingress.py: tuple filtering and advancing reception",
+        "SyrenDocs/LowLatencyRtpPrototype.md: 2026-09-05 negotiated HiFiBerry parameters",
+        "linux/audio/tests/smoke_shared.py: isolated shared graph, private Pulse frontend, branch isolation and advancing muted RTP"
+      ]
+    }
+  },
+  "required_checks": [
+    "modules",
+    "protocol",
+    "device",
+    "negotiation",
+    "transport",
+    "desktop_ports"
+  ],
+  "release_acceptance": "outstanding"
+}

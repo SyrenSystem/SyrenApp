@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+action="${1:?Package action required}"
+case "$action" in
+  preinst|prerm)
+    if [ -x /usr/lib/syren-rtp/receiver.py ]; then
+      timeout 65 /usr/bin/python3 /usr/lib/syren-rtp/receiver.py drain
+    fi
+    systemctl stop syren-rtp-broker.service syren-rtp-broker.socket 2>/dev/null || {
+      if [ -e /var/lib/syren-rtp/state.json ]; then
+        echo 'Package action aborted: receiver restoration is pending.' >&2
+        exit 1
+      fi
+    }
+    ;;
+  postinst)
+    getent group syren-audio >/dev/null || groupadd --system syren-audio
+    getent group syren-rtp >/dev/null || groupadd --system syren-rtp
+    id syren-rtp >/dev/null 2>&1 || useradd --system --gid syren-rtp --groups audio,syren-audio --home-dir /nonexistent --shell /usr/sbin/nologin syren-rtp
+    install -d -m 755 /etc/syrensystem
+    install -d -m 700 /var/lib/syren-rtp
+    systemctl daemon-reload
+    if [ -e /etc/syrensystem/receiver.json ] && [ ! -e /var/lib/syren-rtp/state.json ]; then
+      rm -f /var/lib/syren-rtp/disabled
+      systemctl enable --now syren-rtp-broker.socket
+    fi
+    ;;
+  postrm)
+    systemctl daemon-reload
+    ;;
+  *) exit 2 ;;
+esac

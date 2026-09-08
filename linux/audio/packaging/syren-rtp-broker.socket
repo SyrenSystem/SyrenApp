@@ -1,0 +1,12 @@
+[Unit]
+Description=Syren RTP receiver control socket
+
+[Socket]
+ListenStream=/run/syren-rtp-broker.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=syren-audio
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

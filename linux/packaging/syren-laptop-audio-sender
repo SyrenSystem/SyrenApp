@@ -11,7 +11,16 @@ if [ ! -x "$audio_control" ]; then
   audio_control="syren-audio-control"
 fi
 capture_fifo="${XDG_RUNTIME_DIR:-/tmp}/syren-laptop-audio-$$.fifo"
-trap 'kill "${record_pid:-}" 2>/dev/null; rm -f "$capture_fifo"' EXIT INT TERM
+cleanup() {
+  for child_pid in "${record_pid:-}" "${network_pid:-}" "${sleep_pid:-}"; do
+    if [ -n "$child_pid" ]; then
+      kill "$child_pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$capture_fifo"
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
 netcat_help="$(nc -h 2>&1 || true)"
 case "$netcat_help" in
   *-N*) netcat_close_options="-N" ;;
@@ -19,13 +28,23 @@ case "$netcat_help" in
 esac
 
 apply_pending=1
+restore_only=0
+restore_marker="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/syren-sender-restore-once"
+if [ -f "$restore_marker" ]; then
+  restore_only=1
+  rm -f "$restore_marker"
+fi
 while true; do
   if ! sink_state="$("$audio_control" ensure-sink)"; then
     printf 'Could not create the %s sink.\n' "$virtual_sink" >&2
     exit 1
   fi
   # Routing is applied once at start and again only after the sink had to be recreated.
-  if [ "$apply_pending" = 1 ] || [ "$sink_state" = created ]; then
+  # A restore after RTP skips only the first pass, since the routes were just put back by hand.
+  if [ "$restore_only" = 1 ]; then
+    restore_only=0
+    apply_pending=0
+  elif [ "$apply_pending" = 1 ] || [ "$sink_state" = created ]; then
     "$audio_control" apply || printf 'Could not apply the laptop audio state.\n' >&2
     apply_pending=0
   fi
@@ -41,9 +60,15 @@ while true; do
     -P '{ "stream.capture.sink": true, "node.dont-fallback": true, "node.dont-reconnect": true }' \
     --target "$virtual_sink" - > "$capture_fifo" &
   record_pid=$!
-  nc $netcat_close_options "$server_host" "$server_port" < "$capture_fifo" || true
+  nc $netcat_close_options "$server_host" "$server_port" < "$capture_fifo" &
+  network_pid=$!
+  wait "$network_pid" || true
+  network_pid=""
   kill "$record_pid" 2>/dev/null || true
   wait "$record_pid" 2>/dev/null || true
   rm -f "$capture_fifo"
-  sleep 1
+  sleep 1 &
+  sleep_pid=$!
+  wait "$sleep_pid" || true
+  sleep_pid=""
 done

@@ -1,3 +1,4 @@
+import 'package:final_project/ui/app_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/providers/app_state_providers.dart';
@@ -238,9 +239,8 @@ class ConnectSpeakerPage extends ConsumerWidget {
                                             !configuration.isSpeakerGrouped(
                                               configuredSpeaker.id,
                                             );
-                                        ScaffoldMessenger.of(
+                                        showLatestSnackBar(
                                           context,
-                                        ).showSnackBar(
                                           SnackBar(
                                             content: Text(
                                               'Speaker $closestSpeakerId connected for mapping!'
@@ -258,9 +258,8 @@ class ConnectSpeakerPage extends ConsumerWidget {
                                         );
                                         Navigator.pop(context);
                                       } else {
-                                        ScaffoldMessenger.of(
+                                        showLatestSnackBar(
                                           context,
-                                        ).showSnackBar(
                                           const SnackBar(
                                             content: Text(
                                               "Failed to connect. Check MQTT connection.",

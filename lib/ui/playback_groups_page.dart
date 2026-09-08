@@ -1,11 +1,36 @@
+import 'package:final_project/ui/app_feedback.dart';
 import 'dart:async';
 
 import 'package:final_project/models/system_configuration.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/services_providers.dart';
+import 'package:final_project/services/local_audio_service.dart';
 import 'package:final_project/ui/command_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+// A paused laptop session with Snapcast selected is not a muted group, but a configured mute still counts.
+bool _groupOutputMuted(RtpStatus? playback, PlaybackGroup? group) =>
+    playback?.outputMuted == true || (group?.muted ?? false);
+
+// The receiver holds laptop audio muted for a reason other than a pending start or a Spotify handoff.
+bool _laptopPaused(LocalAudioService service) =>
+    service.rtp.state == 'readyMuted' &&
+    !service.enablingPlayback &&
+    !service.waitingForPriority;
+
+bool _includesLaptopAudio(
+  SystemConfiguration configuration,
+  PlaybackGroup? group,
+  LocalAudioService service,
+) =>
+    service.rtp.active &&
+    group != null &&
+    configuration.speakers.any(
+      (speaker) =>
+          group.speakerIds.contains(speaker.id) &&
+          speaker.snapClientId == service.rtp.pairing?['snapclient_id'],
+    );
 
 class PlaybackGroupsPage extends ConsumerWidget {
   const PlaybackGroupsPage({super.key});
@@ -94,6 +119,10 @@ class PlaybackGroupsPage extends ConsumerWidget {
     SystemConfiguration configuration,
     PlaybackGroup? group,
   ) async {
+    final audio = ref.read(localAudioServiceProvider);
+    final localPlayback = _includesLaptopAudio(configuration, group, audio);
+    final initialPlayback = localPlayback ? audio.rtp : null;
+    final initialMuted = group?.muted ?? false;
     final draft = await showDialog<_GroupDraft>(
       context: context,
       builder: (context) =>
@@ -101,6 +130,61 @@ class PlaybackGroupsPage extends ConsumerWidget {
     );
     if (draft == null || !context.mounted) {
       return;
+    }
+    // Routine handoffs move the receiver generation while the dialog is open, so only a lost session skips the live controls.
+    if (initialPlayback != null &&
+        audio.rtp.active &&
+        audio.rtp.session == initialPlayback.session) {
+      try {
+        if (draft.muted && !initialMuted) {
+          await audio.muteRtp();
+          if (audio.muteFeedback != null) throw StateError(audio.muteFeedback!);
+        } else {
+          final speaker = configuration.speakers.firstWhere(
+            (speaker) =>
+                speaker.snapClientId ==
+                initialPlayback.pairing?['snapclient_id'],
+          );
+          if (draft.masterVolume != group?.masterVolume ||
+              (draft.sourceLevels['laptop'] ?? 100) !=
+                  group?.sourceLevel('laptop')) {
+            await audio.setPlaybackLevels(
+              groupVolume: draft.masterVolume,
+              sourceLevel: draft.sourceLevels['laptop'] ?? 100,
+              speakerLevel: speaker.level,
+            );
+          }
+          if (!draft.muted && _laptopPaused(audio)) {
+            if (audio.canUnmute) {
+              // Confirms the saved volume again, then unmutes or hands off to Spotify by priority.
+              await ref.read(groupAudioCoordinatorProvider).refresh();
+              await audio.enablePlayback(
+                groupVolume: draft.masterVolume,
+                sourceLevel: draft.sourceLevels['laptop'] ?? 100,
+                speakerLevel: speaker.level,
+              );
+            } else if (initialMuted) {
+              throw StateError(
+                'Wait for confirmed mute and receiver readiness.',
+              );
+            }
+          }
+        }
+      } catch (error) {
+        if (context.mounted) {
+          showLatestSnackBar(
+            context,
+            SnackBar(
+              content: Text(
+                error is StateError
+                    ? error.message.toString()
+                    : error.toString(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
     }
     final result = await ref
         .read(mqttServiceProvider)
@@ -111,6 +195,7 @@ class PlaybackGroupsPage extends ConsumerWidget {
           name: draft.name,
           speakerIds: draft.speakerIds,
           sourcePriority: draft.sourcePriority,
+          sourceLevels: draft.sourceLevels,
           volumeMode: draft.automatic ? 'automatic' : 'manual',
           masterVolume: draft.masterVolume,
           muted: draft.muted,
@@ -198,6 +283,12 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
 
   @override
   Widget build(BuildContext context) {
+    final audio = ref.watch(localAudioServiceProvider);
+    final localPlayback = _includesLaptopAudio(
+      widget.configuration,
+      widget.group,
+      audio,
+    );
     final speakersById = {
       for (final speaker in widget.configuration.speakers) speaker.id: speaker,
     };
@@ -214,7 +305,12 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
             Row(
               children: [
                 Icon(
-                  widget.group.muted ? Icons.volume_off : Icons.speaker_group,
+                  _groupOutputMuted(
+                        localPlayback ? audio.rtp : null,
+                        widget.group,
+                      )
+                      ? Icons.volume_off
+                      : Icons.speaker_group,
                   color: const Color(0xFFd4af37),
                 ),
                 const SizedBox(width: 10),
@@ -244,7 +340,9 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
               children: [
                 Chip(
                   label: Text(
-                    widget.group.automatic
+                    localPlayback
+                        ? 'Low-latency connected'
+                        : widget.group.automatic
                         ? 'Location volume'
                         : 'Manual volume',
                   ),
@@ -274,9 +372,12 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
               divisions: 100,
               onChangeStart: (_) => setState(() => _dragging = true),
               onChanged: (value) => setState(() => _masterVolume = value),
-              onChangeEnd: (_) {
-                setState(() => _dragging = false);
-                unawaited(_saveMasterVolume());
+              onChangeEnd: (value) {
+                setState(() {
+                  _dragging = false;
+                  _masterVolume = value;
+                });
+                unawaited(_saveMasterVolume(value));
               },
             ),
             const Divider(),
@@ -294,18 +395,47 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
     );
   }
 
-  Future<void> _saveMasterVolume() async {
+  Future<void> _saveMasterVolume(double value) async {
     final latest = ref.read(systemConfigurationProvider);
     final group = latest?.groups
         .where((candidate) => candidate.id == widget.group.id)
         .firstOrNull;
     if (latest == null || group == null) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        showLatestSnackBar(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Group no longer exists')));
+          const SnackBar(content: Text('Group no longer exists')),
+        );
       }
       return;
+    }
+    final audio = ref.read(localAudioServiceProvider);
+    if (_includesLaptopAudio(latest, group, audio)) {
+      try {
+        final speaker = latest.speakers.firstWhere(
+          (speaker) =>
+              speaker.snapClientId == audio.rtp.pairing?['snapclient_id'],
+        );
+        await audio.setPlaybackLevels(
+          groupVolume: value,
+          sourceLevel: group.sourceLevel('laptop'),
+          speakerLevel: speaker.level,
+        );
+      } catch (error) {
+        if (mounted) {
+          showLatestSnackBar(
+            context,
+            SnackBar(
+              content: Text(
+                error is StateError
+                    ? error.message.toString()
+                    : error.toString(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
     }
     final result = await ref
         .read(mqttServiceProvider)
@@ -315,8 +445,9 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
           name: group.name,
           speakerIds: group.speakerIds,
           sourcePriority: group.sourcePriority,
+          sourceLevels: group.sourceLevels,
           volumeMode: group.volumeMode,
-          masterVolume: _masterVolume,
+          masterVolume: value,
           muted: group.muted,
         );
     if (mounted) {
@@ -359,6 +490,10 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
 
   @override
   Widget build(BuildContext context) {
+    final audio = ref.watch(localAudioServiceProvider);
+    final localPlayback =
+        audio.rtp.active &&
+        audio.rtp.pairing?['snapclient_id'] == widget.speaker.snapClientId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -373,16 +508,19 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
                 divisions: 100,
                 onChangeStart: (_) => setState(() => _dragging = true),
                 onChanged: (value) => setState(() => _level = value),
-                onChangeEnd: (_) {
-                  setState(() => _dragging = false);
-                  unawaited(_save());
+                onChangeEnd: (value) {
+                  setState(() {
+                    _dragging = false;
+                    _level = value;
+                  });
+                  unawaited(_save(value));
                 },
               ),
             ),
             SizedBox(width: 44, child: Text('${_level.round()}%')),
           ],
         ),
-        if (widget.showUncalibratedHint)
+        if (widget.showUncalibratedHint && !localPlayback)
           const Padding(
             padding: EdgeInsets.only(bottom: 4),
             child: Text(
@@ -394,17 +532,43 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
     );
   }
 
-  Future<void> _save() async {
-    final revision = ref.read(systemConfigurationProvider)?.revision;
-    if (revision == null) {
-      return;
+  Future<void> _save(double value) async {
+    final configuration = ref.read(systemConfigurationProvider);
+    if (configuration == null) return;
+    final audio = ref.read(localAudioServiceProvider);
+    if (audio.rtp.active &&
+        audio.rtp.pairing?['snapclient_id'] == widget.speaker.snapClientId) {
+      try {
+        final group = configuration.groups
+            .where((group) => group.speakerIds.contains(widget.speaker.id))
+            .firstOrNull;
+        await audio.setPlaybackLevels(
+          groupVolume: group?.masterVolume ?? 0,
+          sourceLevel: group?.sourceLevel('laptop') ?? 100,
+          speakerLevel: value,
+        );
+      } catch (error) {
+        if (mounted) {
+          showLatestSnackBar(
+            context,
+            SnackBar(
+              content: Text(
+                error is StateError
+                    ? error.message.toString()
+                    : error.toString(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
     }
     final result = await ref
         .read(mqttServiceProvider)
         .setSpeakerLevel(
-          expectedRevision: revision,
+          expectedRevision: configuration.revision,
           speakerId: widget.speaker.id,
-          level: _level,
+          level: value,
         );
     if (mounted) {
       showCommandFeedback(context, result, 'Speaker level saved');
@@ -426,6 +590,7 @@ class _GroupEditorState extends State<_GroupEditor> {
   late final TextEditingController _nameController;
   late final Set<String> _speakerIds;
   late final List<String> _sourcePriority;
+  late final Map<String, double> _sourceLevels;
   late bool _automatic;
   late bool _muted;
   late double _masterVolume;
@@ -442,7 +607,9 @@ class _GroupEditorState extends State<_GroupEditor> {
       if (widget.group == null)
         ...widget.configuration.sources.map((source) => source.id),
     ];
+    _sourceLevels = {...?widget.group?.sourceLevels};
     _automatic = widget.group?.automatic ?? false;
+    // The receiver mutes itself briefly while starting or recovering, and that must not be saved as a group mute.
     _muted = widget.group?.muted ?? false;
     _masterVolume = widget.group?.masterVolume ?? 100;
   }
@@ -536,6 +703,25 @@ class _GroupEditorState extends State<_GroupEditor> {
                       ),
                 ],
               ),
+              const SizedBox(height: 16),
+              const Text('Source balance'),
+              const Text(
+                'Lower the louder source. Master volume controls both.',
+              ),
+              for (final source in widget.configuration.sources) ...[
+                Text(
+                  '${source.name} ${(_sourceLevels[source.id] ?? 100).round()}%',
+                ),
+                Slider(
+                  key: ValueKey('source-level-${source.id}'),
+                  value: _sourceLevels[source.id] ?? 100,
+                  max: 100,
+                  divisions: 100,
+                  label: '${(_sourceLevels[source.id] ?? 100).round()}%',
+                  onChanged: (value) =>
+                      setState(() => _sourceLevels[source.id] = value),
+                ),
+              ],
               SwitchListTile(
                 value: _automatic,
                 title: const Text('Location volume'),
@@ -575,6 +761,7 @@ class _GroupEditorState extends State<_GroupEditor> {
                     name: _nameController.text.trim(),
                     speakerIds: _speakerIds.toList(),
                     sourcePriority: _sourcePriority,
+                    sourceLevels: _sourceLevels,
                     automatic: _automatic,
                     masterVolume: _masterVolume,
                     muted: _muted,
@@ -605,6 +792,7 @@ class _GroupDraft {
     required this.name,
     required this.speakerIds,
     required this.sourcePriority,
+    required this.sourceLevels,
     required this.automatic,
     required this.masterVolume,
     required this.muted,
@@ -613,6 +801,7 @@ class _GroupDraft {
   final String name;
   final List<String> speakerIds;
   final List<String> sourcePriority;
+  final Map<String, double> sourceLevels;
   final bool automatic;
   final double masterVolume;
   final bool muted;

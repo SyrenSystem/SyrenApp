@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:final_project/services/group_audio_coordinator.dart';
 
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/speaker_data.dart';
@@ -110,12 +111,14 @@ final serialServiceProvider = Provider<SerialService>((ref) {
   return service;
 });
 
-final localAudioServiceProvider = Provider<LocalAudioService>((ref) {
-  return LocalAudioService();
+final localAudioServiceProvider = ChangeNotifierProvider<LocalAudioService>((
+  ref,
+) {
+  return LocalAudioService()..attachApp();
 });
 
 final localAudioEnabledProvider = FutureProvider<bool?>((ref) {
-  return ref.watch(localAudioServiceProvider).status();
+  return ref.read(localAudioServiceProvider).status();
 });
 
 final speakerNameMigrationProvider = Provider<SpeakerNameMigration>((ref) {
@@ -124,4 +127,23 @@ final speakerNameMigrationProvider = Provider<SpeakerNameMigration>((ref) {
     Hive.box<String>('syren_metadata'),
     ref.read(mqttServiceProvider),
   );
+});
+
+final groupAudioCoordinatorProvider = Provider<GroupAudioCoordinator>((ref) {
+  final coordinator = GroupAudioCoordinator(
+    audio: ref.read(localAudioServiceProvider),
+    configuration: () => ref.read(systemConfigurationProvider),
+    runtime: () => ref.read(systemRuntimeProvider),
+    online: () =>
+        ref.read(serverOnlineProvider) &&
+        ref.read(mqttServiceProvider).isConnected,
+  );
+  ref.listen(
+    systemConfigurationProvider,
+    (_, _) => unawaited(coordinator.refresh()),
+  );
+  ref.listen(systemRuntimeProvider, (_, _) => unawaited(coordinator.refresh()));
+  ref.onDispose(coordinator.dispose);
+  coordinator.start();
+  return coordinator;
 });

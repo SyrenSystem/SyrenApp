@@ -39,6 +39,23 @@ ln -s /opt/syren-app/syren_app "$package_root/usr/bin/syren-app"
 install -m 755 linux/packaging/syren-audio-control "$package_root/usr/bin/syren-audio-control"
 install -m 755 linux/packaging/syren-laptop-audio-sender "$package_root/usr/lib/syrensystem/syren-laptop-audio-sender"
 install -m 644 linux/packaging/syren-laptop-audio.service "$package_root/usr/lib/systemd/user/syren-laptop-audio.service"
+install -d "$package_root/usr/lib/syrensystem/rtp/templates"
+for module in common compatibility pairing routing laptop; do
+  install -m 644 "linux/audio/$module.py" "$package_root/usr/lib/syrensystem/rtp/$module.py"
+done
+install -m 644 linux/audio/compatibility.json "$package_root/usr/lib/syrensystem/rtp/compatibility.json"
+install -m 644 linux/audio/templates/sender.conf.in "$package_root/usr/lib/syrensystem/rtp/templates/sender.conf.in"
+install -m 755 linux/audio/packaging/laptop-maintenance.py "$package_root/usr/lib/syrensystem/rtp/maintenance.py"
+for action in preinst prerm; do
+  cat > "$package_root/DEBIAN/$action" <<'MAINTENANCE'
+#!/bin/sh
+set -eu
+if [ -f /usr/lib/syrensystem/rtp/maintenance.py ]; then
+  /usr/bin/python3 /usr/lib/syrensystem/rtp/maintenance.py
+fi
+MAINTENANCE
+  chmod 755 "$package_root/DEBIAN/$action"
+done
 install -m 644 linux/packaging/com.syrensystem.app.desktop "$package_root/usr/share/applications/com.syrensystem.app.desktop"
 install -m 644 assets/pics/icon.png "$package_root/usr/share/icons/hicolor/512x512/apps/com.syrensystem.app.png"
 
@@ -50,7 +67,7 @@ Section: sound
 Priority: optional
 Architecture: $architecture
 Installed-Size: $installed_size
-Depends: libgtk-3-0t64, libserialport0, pipewire-pulse, pipewire-bin, pulseaudio-utils, netcat-openbsd | netcat-traditional
+Depends: libgtk-3-0t64, libserialport0, pipewire-pulse, pipewire-bin, libpipewire-0.3-modules, pulseaudio-utils, python3, openssh-client, netcat-openbsd | netcat-traditional
 Maintainer: SyrenSystem
 Description: Desktop control application for SyrenSystem
  Configure speakers, playback groups, source priority, and volume.
@@ -59,6 +76,7 @@ CONTROL
 cat > "$package_root/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
+rm -f /usr/lib/syrensystem/rtp/disabled
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q /usr/share/applications || true
 fi

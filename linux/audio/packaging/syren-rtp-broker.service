@@ -1,0 +1,23 @@
+[Unit]
+Description=Syren RTP receiver ownership broker
+Requires=syren-rtp-broker.socket
+After=syren-rtp-broker.socket
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/syren-rtp/receiver.py broker
+ExecStopPost=/usr/bin/python3 /usr/lib/syren-rtp/receiver.py restore
+RuntimeDirectory=syren-rtp
+RuntimeDirectoryMode=0755
+StateDirectory=syren-rtp
+StateDirectoryMode=0700
+TimeoutStopSec=65
+KillMode=control-group
+Restart=no
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+ReadWritePaths=/run/syren-rtp /var/lib/syren-rtp
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER

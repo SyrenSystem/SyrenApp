@@ -22,6 +22,10 @@ bundle_directory="build/linux/$bundle_architecture/release/bundle"
 cd "$project_directory"
 flutter build linux --release
 
+if [ -f "$local_library_directory/rtp/laptop.py" ]; then
+  python3 "$local_library_directory/rtp/laptop.py" '{"version":1,"action":"drain"}'
+fi
+
 mkdir -p \
   "$local_binary_directory" \
   "$local_library_directory" \
@@ -34,6 +38,13 @@ cp -a "$bundle_directory/." "$application_directory/"
 ln -sfn "$application_directory/syren_app" "$local_binary_directory/syren-app"
 install -m 755 linux/packaging/syren-audio-control "$local_binary_directory/syren-audio-control"
 install -m 755 linux/packaging/syren-laptop-audio-sender "$local_library_directory/syren-laptop-audio-sender"
+install -d "$local_library_directory/rtp/templates"
+for module in common compatibility pairing routing laptop; do
+  install -m 644 "linux/audio/$module.py" "$local_library_directory/rtp/$module.py"
+done
+install -m 644 linux/audio/compatibility.json "$local_library_directory/rtp/compatibility.json"
+install -m 644 linux/audio/templates/sender.conf.in "$local_library_directory/rtp/templates/sender.conf.in"
+rm -f "${XDG_STATE_HOME:-$HOME/.local/state}/syrensystem/rtp/disabled"
 escaped_binary_directory="$(printf '%s' "$local_binary_directory" | sed 's/[&|\\]/\\&/g')"
 sed \
   "s|^Exec=syren-app$|Exec=$escaped_binary_directory/syren-app|" \

@@ -1,10 +1,10 @@
-import 'dart:async';
-
+import 'package:final_project/ui/app_feedback.dart';
 import 'package:final_project/models/system_configuration.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/measurement_provider.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/ui/command_feedback.dart';
+import 'package:final_project/ui/laptop_audio_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,125 +15,102 @@ class SpeakerSetupPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final configuration = ref.watch(systemConfigurationProvider);
     final runtime = ref.watch(systemRuntimeProvider);
-    final localAudio = ref.watch(localAudioEnabledProvider);
-    final localAudioEnabled = localAudio.value;
+    final rtp = ref.watch(localAudioServiceProvider).rtp;
+    if (configuration == null) {
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const LaptopAudioCard(),
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Connect to the Syren server to discover speakers.'),
+          ),
+        ],
+      );
+    }
     return Container(
       color: const Color(0xFF0d121c),
       child: SafeArea(
-        child: configuration == null
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(24, 28, 24, 120),
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'SPEAKERS',
-                          style: TextStyle(
-                            color: Color(0xFFd4af37),
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 4,
-                          ),
-                        ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: runtime == null
-                            ? null
-                            : () => _editSpeaker(
-                                context,
-                                ref,
-                                configuration,
-                                runtime,
-                                null,
-                              ),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Speaker'),
-                      ),
-                    ],
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 120),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'SPEAKERS',
+                    style: TextStyle(
+                      color: Color(0xFFd4af37),
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 4,
+                    ),
                   ),
-                  if (localAudioEnabled != null) ...[
-                    const SizedBox(height: 20),
-                    Card(
-                      child: SwitchListTile(
-                        value: localAudioEnabled,
-                        title: const Text('Laptop audio output'),
-                        subtitle: const Text(
-                          'Send desktop sound to SyrenSystem instead of the built-in speakers.',
-                        ),
-                        secondary: const Icon(Icons.computer),
-                        onChanged: (value) =>
-                            unawaited(_setLocalAudio(context, ref, value)),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  if (runtime != null && !runtime.snapserverOnline)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Snapserver offline',
-                        style: TextStyle(color: Colors.orangeAccent),
-                      ),
-                    ),
-                  if (configuration.speakers.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 80),
-                      child: Center(
-                        child: Text(
-                          'No speakers configured. Start a Snapclient, then add it here.',
-                          style: TextStyle(color: Colors.white54),
-                        ),
-                      ),
-                    ),
-                  for (final speaker in configuration.speakers)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SpeakerCard(
-                        configuration: configuration,
-                        runtime: runtime,
-                        speaker: speaker,
-                        onEdit: () => _editSpeaker(
+                ),
+                FilledButton.icon(
+                  onPressed: runtime == null
+                      ? null
+                      : () => _editSpeaker(
                           context,
                           ref,
                           configuration,
                           runtime,
-                          speaker,
+                          null,
                         ),
-                        onDelete: () => _deleteSpeaker(
-                          context,
-                          ref,
-                          configuration,
-                          speaker,
-                        ),
-                        onCalibrate: speaker.sensorId == null
-                            ? null
-                            : () => _calibrate(context, ref, speaker),
-                      ),
-                    ),
-                ],
+                  icon: const Icon(Icons.add),
+                  label: const Text('Speaker'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const LaptopAudioCard(),
+            const SizedBox(height: 16),
+            if (runtime != null && !runtime.snapserverOnline)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Snapserver offline',
+                  style: TextStyle(color: Colors.orangeAccent),
+                ),
               ),
+            if (configuration.speakers.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 80),
+                child: Center(
+                  child: Text(
+                    'No speakers configured. Start a Snapclient, then add it here.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ),
+            for (final speaker in configuration.speakers)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _SpeakerCard(
+                  configuration: configuration,
+                  runtime: runtime,
+                  speaker: speaker,
+                  usingRtp:
+                      rtp.active &&
+                      rtp.pairing?['snapclient_id'] == speaker.snapClientId,
+                  onEdit: () => _editSpeaker(
+                    context,
+                    ref,
+                    configuration,
+                    runtime,
+                    speaker,
+                  ),
+                  onDelete: () =>
+                      _deleteSpeaker(context, ref, configuration, speaker),
+                  onCalibrate: speaker.sensorId == null
+                      ? null
+                      : () => _calibrate(context, ref, speaker),
+                ),
+              ),
+          ],
+        ),
       ),
     );
-  }
-
-  Future<void> _setLocalAudio(
-    BuildContext context,
-    WidgetRef ref,
-    bool enabled,
-  ) async {
-    final success = await ref
-        .read(localAudioServiceProvider)
-        .setEnabled(enabled);
-    ref.invalidate(localAudioEnabledProvider);
-    if (context.mounted && !success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to change the laptop audio output.'),
-        ),
-      );
-    }
   }
 
   Future<void> _editSpeaker(
@@ -240,9 +217,7 @@ class SpeakerSetupPage extends ConsumerWidget {
         ? 'Calibration requested for ${speaker.name}.'
         : 'Calibration requested for ${speaker.name}.'
               ' Add it to a playback group to hear audio.';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showLatestSnackBar(context, SnackBar(content: Text(message)));
   }
 }
 
@@ -251,6 +226,7 @@ class _SpeakerCard extends StatelessWidget {
     required this.configuration,
     required this.runtime,
     required this.speaker,
+    required this.usingRtp,
     required this.onEdit,
     required this.onDelete,
     required this.onCalibrate,
@@ -259,6 +235,7 @@ class _SpeakerCard extends StatelessWidget {
   final SystemConfiguration configuration;
   final SystemRuntime? runtime;
   final ConfiguredSpeaker speaker;
+  final bool usingRtp;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onCalibrate;
@@ -276,37 +253,54 @@ class _SpeakerCard extends StatelessWidget {
     final groupName = matchingGroups.isEmpty ? null : matchingGroups.first.name;
     return Card(
       color: Colors.black.withValues(alpha: 0.28),
-      child: ListTile(
-        leading: Icon(
-          online ? Icons.speaker : Icons.speaker_outlined,
-          color: online ? const Color(0xFFd4af37) : Colors.white38,
-        ),
-        title: Text(speaker.name),
-        subtitle: Text(
-          '${speaker.snapClientId}\n'
-          '${groupName ?? 'No group'} · '
-          '${speaker.sensorId == null
-              ? 'Manual only'
-              : speaker.calibrated
-              ? 'Calibrated'
-              : 'Needs calibration'}',
-        ),
-        isThreeLine: true,
-        trailing: Wrap(
-          children: [
-            if (onCalibrate != null && !speaker.calibrated)
-              IconButton(
-                tooltip: 'Calibrate',
-                onPressed: onCalibrate,
-                icon: const Icon(Icons.my_location),
-              ),
-            IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline),
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(
+              online || usingRtp ? Icons.speaker : Icons.speaker_outlined,
+              color: online || usingRtp
+                  ? const Color(0xFFd4af37)
+                  : Colors.white38,
             ),
-          ],
-        ),
+            title: Text(speaker.name),
+            subtitle: Text(
+              '${usingRtp
+                  ? 'Laptop audio connected'
+                  : online
+                  ? 'Connected'
+                  : 'Offline'}\n'
+              '${groupName ?? 'No group'} · '
+              '${speaker.sensorId == null
+                  ? 'Manual only'
+                  : speaker.calibrated
+                  ? 'Calibrated'
+                  : 'Needs calibration'}',
+            ),
+            isThreeLine: true,
+            trailing: Wrap(
+              children: [
+                if (onCalibrate != null && !speaker.calibrated)
+                  IconButton(
+                    tooltip: 'Calibrate',
+                    onPressed: onCalibrate,
+                    icon: const Icon(Icons.my_location),
+                  ),
+                IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
+                IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+          SpeakerLaptopAudio(
+            receiver:
+                runtime?.onlineSnapClients
+                    .where((client) => client.id == speaker.snapClientId)
+                    .firstOrNull ??
+                SnapClientInfo(id: speaker.snapClientId, name: speaker.name),
+          ),
+        ],
       ),
     );
   }

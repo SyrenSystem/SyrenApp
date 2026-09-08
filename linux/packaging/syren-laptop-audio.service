@@ -13,6 +13,9 @@ ExecCondition=/bin/sh -c 'command -v pactl >/dev/null 2>&1 && command -v pw-reco
 ExecStart=/usr/lib/syrensystem/syren-laptop-audio-sender
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=3
+KillMode=control-group
+SendSIGKILL=yes
 
 [Install]
 WantedBy=default.target

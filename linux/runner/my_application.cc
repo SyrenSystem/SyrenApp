@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <unistd.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -13,6 +14,22 @@ struct _MyApplication {
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static void stop_laptop_rtp() {
+  g_autofree gchar* payload = g_strdup_printf(
+      "{\"version\":1,\"action\":\"close\",\"app_pid\":%d}", getpid());
+  g_autofree gchar* executable = g_find_program_in_path("syren-audio-control");
+  if (executable == nullptr) {
+    executable = g_build_filename(g_get_home_dir(), ".local", "bin", "syren-audio-control", nullptr);
+  }
+  gchar* arguments[] = {executable, const_cast<gchar*>("rtp"), payload, nullptr};
+  g_spawn_async(nullptr, arguments, nullptr, G_SPAWN_DEFAULT, nullptr, nullptr, nullptr, nullptr);
+}
+
+static gboolean window_close_cb(GtkWidget* widget, GdkEvent* event, gpointer data) {
+  stop_laptop_rtp();
+  return FALSE;
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView *view)
@@ -54,6 +71,7 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  g_signal_connect(window, "delete-event", G_CALLBACK(window_close_cb), nullptr);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
@@ -106,6 +124,7 @@ static void my_application_startup(GApplication* application) {
 
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
+  stop_laptop_rtp();
   //MyApplication* self = MY_APPLICATION(object);
 
   // Perform any actions required at application shutdown.

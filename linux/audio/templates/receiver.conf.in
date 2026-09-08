@@ -1,0 +1,77 @@
+context.properties = {
+    core.daemon = true
+    core.name = syren-rtp
+    log.level = 3
+    default.clock.rate = 48000
+    default.clock.allowed-rates = [ 48000 ]
+    default.clock.quantum = 128
+    default.clock.min-quantum = 128
+    default.clock.max-quantum = 128
+}
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    audio.adapt = audioconvert/libspa-audioconvert
+    api.alsa.* = alsa/libspa-alsa
+    support.* = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-rt flags = [ ifexists nofail ] }
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-profiler }
+    { name = libpipewire-module-metadata }
+    { name = libpipewire-module-spa-node-factory }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-access }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-link-factory }
+    { name = libpipewire-module-rtp-source
+      args = {
+        source.ip = "127.0.0.2"
+        source.port = @PORT@
+        sess.media = audio
+        sess.latency.msec = @LATENCY@
+        sess.min-ptime = 2.5
+        sess.max-ptime = 2.5
+        sess.ts-direct = false
+        sess.ignore-ssrc = true
+        stream.may-pause = false
+        audio.format = S16BE
+        audio.rate = 48000
+        audio.channels = 2
+        audio.position = [ FL FR ]
+        stream.props = {
+            node.name = syren_rtp_receive
+            node.autoconnect = false
+            node.always-process = true
+            rtp.ptime = 2.5
+            rtp.payload = 127
+            resample.disable = false
+            adapter.auto-port-config = { mode = dsp position = preserve }
+        }
+      }
+    }
+]
+context.objects = [
+    { factory = metadata args = { metadata.name = default } }
+    { factory = adapter
+      args = {
+        factory.name = api.alsa.pcm.sink
+        node.name = syren_hifiberry
+        node.description = "Syren RTP HiFiBerry"
+        media.class = Audio/Sink
+        api.alsa.path = "@DEVICE@"
+        api.alsa.period-size = @PERIOD@
+        api.alsa.period-num = 3
+        api.alsa.headroom = 0
+        audio.format = S32
+        audio.rate = 48000
+        audio.channels = 2
+        audio.position = "FL,FR"
+        node.pause-on-idle = false
+        node.suspend-on-idle = false
+        resample.disable = false
+        node.param.Props = { mute = true channelVolumes = [ 0.1 0.1 ] }
+        adapter.auto-port-config = { mode = dsp monitor = false position = preserve }
+      }
+    }
+]

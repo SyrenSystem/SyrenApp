@@ -1,6 +1,19 @@
 #!/bin/sh
 set -eu
 
+if [ "${1:-}" = rtp ]; then
+  control_directory="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+  rtp_control="$control_directory/../lib/syrensystem/rtp/laptop.py"
+  if [ ! -f "$rtp_control" ]; then
+    rtp_control="$control_directory/../audio/laptop.py"
+  fi
+  rtp_request="${2:-}"
+  if [ -z "$rtp_request" ]; then
+    rtp_request='{"version":1,"action":"status"}'
+  fi
+  exec python3 "$rtp_control" "$rtp_request"
+fi
+
 configuration_root="${XDG_CONFIG_HOME:-$HOME/.config}/syrensystem"
 state_file="$configuration_root/laptop-audio-state"
 virtual_sink="SyrenSystem"
@@ -88,6 +101,10 @@ disable_audio() {
 command_name="${1:-status}"
 case "$command_name" in
   enable)
+    if [ -f "${XDG_STATE_HOME:-$HOME/.local/state}/syrensystem/rtp/state.json" ]; then
+      printf '%s\n' 'Stop and recover RTP before enabling Snapcast routing.' >&2
+      exit 1
+    fi
     enable_audio
     ;;
   disable)

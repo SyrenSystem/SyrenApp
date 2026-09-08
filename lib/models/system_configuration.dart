@@ -93,6 +93,7 @@ class PlaybackGroup {
     required this.name,
     required this.speakerIds,
     required this.sourcePriority,
+    this.sourceLevels = const {},
     required this.volumeMode,
     required this.masterVolume,
     required this.muted,
@@ -102,6 +103,9 @@ class PlaybackGroup {
   final String name;
   final List<String> speakerIds;
   final List<String> sourcePriority;
+  final Map<String, double> sourceLevels;
+
+  double sourceLevel(String source) => sourceLevels[source] ?? 100;
   final String volumeMode;
   final double masterVolume;
   final bool muted;
@@ -114,6 +118,9 @@ class PlaybackGroup {
       name: json['name'] as String,
       speakerIds: (json['speakerIds'] as List).cast<String>(),
       sourcePriority: (json['sourcePriority'] as List).cast<String>(),
+      sourceLevels: (json['sourceLevels'] as Map<String, dynamic>? ?? {}).map(
+        (source, level) => MapEntry(source, (level as num).toDouble()),
+      ),
       volumeMode: json['volumeMode'] as String,
       masterVolume: (json['masterVolume'] as num).toDouble(),
       muted: json['muted'] as bool,

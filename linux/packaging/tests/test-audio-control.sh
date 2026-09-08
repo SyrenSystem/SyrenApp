@@ -69,6 +69,9 @@ PATH="$fake_bin:$PATH"
 export PATH
 XDG_CONFIG_HOME="$temp_directory/config"
 export XDG_CONFIG_HOME
+# A pending RTP journal on the developer machine must not make enable refuse during the test.
+XDG_STATE_HOME="$temp_directory/state"
+export XDG_STATE_HOME
 state_file="$XDG_CONFIG_HOME/syrensystem/laptop-audio-state"
 stderr_log="$temp_directory/stderr.log"
 

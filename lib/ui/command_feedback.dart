@@ -1,3 +1,4 @@
+import 'package:final_project/ui/app_feedback.dart';
 import 'package:final_project/models/system_configuration.dart';
 import 'package:flutter/material.dart';
 
@@ -11,5 +12,5 @@ void showCommandFeedback(
       : result.success
       ? successMessage
       : result.error ?? 'Command failed';
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  showLatestSnackBar(context, SnackBar(content: Text(message)));
 }

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:flutter/services.dart';
+import 'package:final_project/ui/app_feedback.dart';
 import 'package:final_project/providers/settings_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +13,14 @@ class SettingsPageWidget extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
+  late final Future<String> _version = rootBundle
+      .loadString('version.json')
+      .then((value) {
+        final metadata = jsonDecode(value) as Map<String, dynamic>;
+        return 'Version ${metadata['version']} (build ${metadata['build_number']})';
+      })
+      .catchError((Object error) => 'Version unavailable');
+
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
 
@@ -55,6 +66,14 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
                       fontFamily: 'serif',
                     ),
                   ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: FutureBuilder<String>(
+                  future: _version,
+                  builder: (context, snapshot) =>
+                      Text(snapshot.data ?? 'Loading version…'),
                 ),
               ),
               const SizedBox(height: 40),
@@ -120,7 +139,8 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
     final port = int.tryParse(_portController.text.trim());
     if (ip.isEmpty || port == null || port <= 0 || port > 65535) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showLatestSnackBar(
+          context,
           const SnackBar(
             content: Text('Please enter a valid IP and port'),
             backgroundColor: Colors.red,
@@ -131,7 +151,8 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
     }
     await ref.read(settingsProvider.notifier).saveSettings(ip, port);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showLatestSnackBar(
+        context,
         SnackBar(
           content: const Text('Settings saved successfully'),
           backgroundColor: const Color(0xFFd4af37),

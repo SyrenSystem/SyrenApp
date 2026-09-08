@@ -1,3 +1,4 @@
+import 'package:final_project/ui/app_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
@@ -30,6 +31,9 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'SyrenSystem',
       theme: ThemeData.dark().copyWith(
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+        ),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFFd4af37),
           brightness: Brightness.dark,
@@ -63,7 +67,8 @@ class _MainPageState extends ConsumerState<MainPage> {
 
     if (settings.ip.isEmpty || settings.port <= 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showLatestSnackBar(
+          context,
           const SnackBar(
             content: Text("Please configure MQTT settings first."),
           ),
@@ -74,9 +79,7 @@ class _MainPageState extends ConsumerState<MainPage> {
 
     final error = await controller.startMeasurement();
     if (error != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      showLatestSnackBar(context, SnackBar(content: Text(error)));
     }
 
     setState(() {}); // Rebuild to update button text
@@ -85,6 +88,8 @@ class _MainPageState extends ConsumerState<MainPage> {
   @override
   Widget build(BuildContext context) {
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
+    ref.watch(localAudioServiceProvider);
+    ref.watch(groupAudioCoordinatorProvider);
     final controller = ref.read(measurementControllerProvider);
 
     // This keeps the broker connection alive for every page.
@@ -98,6 +103,7 @@ class _MainPageState extends ConsumerState<MainPage> {
     ];
 
     return Scaffold(
+      extendBody: true,
       body: Stack(
         children: [
           pages[selectedNavIndex],
@@ -189,66 +195,65 @@ class _MainPageState extends ConsumerState<MainPage> {
                 ],
               ),
             ),
-
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 24,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF090c13),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildNavItem(
-                        icon: Icons.social_distance,
-                        label: 'Distance',
-                        index: 0,
-                        isSelected: selectedNavIndex == 0,
-                        onTap: () {
-                          ref.read(selectedNavIndexProvider.notifier).state = 0;
-                        },
-                      ),
-                      _buildNavItem(
-                        icon: Icons.speaker_group,
-                        label: 'Playback',
-                        index: 1,
-                        isSelected: selectedNavIndex == 1,
-                        onTap: () {
-                          ref.read(selectedNavIndexProvider.notifier).state = 1;
-                        },
-                      ),
-                      _buildNavItem(
-                        icon: Icons.speaker,
-                        label: 'Speakers',
-                        index: 2,
-                        isSelected: selectedNavIndex == 2,
-                        onTap: () {
-                          ref.read(selectedNavIndexProvider.notifier).state = 2;
-                        },
-                      ),
-                      _buildNavItem(
-                        icon: Icons.settings,
-                        label: 'Settings',
-                        index: 3,
-                        isSelected: selectedNavIndex == 3,
-                        onTap: () {
-                          ref.read(selectedNavIndexProvider.notifier).state = 3;
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF090c13),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildNavItem(
+                      icon: Icons.social_distance,
+                      label: 'Distance',
+                      index: 0,
+                      isSelected: selectedNavIndex == 0,
+                      onTap: () {
+                        ref.read(selectedNavIndexProvider.notifier).state = 0;
+                      },
+                    ),
+                    _buildNavItem(
+                      icon: Icons.speaker_group,
+                      label: 'Playback',
+                      index: 1,
+                      isSelected: selectedNavIndex == 1,
+                      onTap: () {
+                        ref.read(selectedNavIndexProvider.notifier).state = 1;
+                      },
+                    ),
+                    _buildNavItem(
+                      icon: Icons.speaker,
+                      label: 'Speakers',
+                      index: 2,
+                      isSelected: selectedNavIndex == 2,
+                      onTap: () {
+                        ref.read(selectedNavIndexProvider.notifier).state = 2;
+                      },
+                    ),
+                    _buildNavItem(
+                      icon: Icons.settings,
+                      label: 'Settings',
+                      index: 3,
+                      isSelected: selectedNavIndex == 3,
+                      onTap: () {
+                        ref.read(selectedNavIndexProvider.notifier).state = 3;
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

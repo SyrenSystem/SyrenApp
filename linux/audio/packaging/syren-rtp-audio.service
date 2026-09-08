@@ -1,0 +1,32 @@
+[Unit]
+Description=Syren unprivileged RTP receiver
+BindsTo=syren-rtp-broker.service
+After=syren-rtp-broker.service
+
+[Service]
+User=syren-rtp
+Group=syren-rtp
+SupplementaryGroups=audio
+ExecStart=/usr/bin/python3 /usr/lib/syren-rtp/worker.py
+ExecStopPost=+/usr/bin/python3 /usr/lib/syren-rtp/receiver.py worker-exit
+RuntimeDirectory=syren-rtp-audio
+RuntimeDirectoryMode=0700
+LogsDirectory=syren-rtp
+LogsDirectoryMode=0700
+TimeoutStopSec=2
+KillMode=control-group
+Restart=no
+SendSIGKILL=yes
+LimitRTPRIO=88
+LimitNICE=31
+LimitMEMLOCK=268435456
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+ReadOnlyPaths=/run/syren-rtp
+DevicePolicy=closed
+DeviceAllow=char-alsa rw
+CapabilityBoundingSet=
