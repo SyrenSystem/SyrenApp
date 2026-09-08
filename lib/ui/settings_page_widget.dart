@@ -17,7 +17,7 @@ class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
       .loadString('version.json')
       .then((value) {
         final metadata = jsonDecode(value) as Map<String, dynamic>;
-        return 'Version ${metadata['version']} (build ${metadata['build_number']})';
+        return 'Version ${metadata['version']}';
       })
       .catchError((Object error) => 'Version unavailable');
 

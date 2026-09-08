@@ -67,9 +67,7 @@ void main() {
       (message) async {
         if (utf8.decode(message!.buffer.asUint8List()) == 'version.json') {
           return ByteData.sublistView(
-            Uint8List.fromList(
-              utf8.encode('{"version":"2.3.4","build_number":"99"}'),
-            ),
+            Uint8List.fromList(utf8.encode('{"version":"2.3.4"}')),
           );
         }
         return null;
@@ -88,6 +86,6 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Version 2.3.4 (build 99)'), findsOneWidget);
+    expect(find.text('Version 2.3.4'), findsOneWidget);
   });
 }
