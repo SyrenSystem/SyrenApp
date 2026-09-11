@@ -33,6 +33,119 @@ ProcessResult response(Map<String, dynamic> value) =>
     ProcessResult(1, 0, jsonEncode(value), '');
 
 void main() {
+  testWidgets('idle laptop stays playing unless another source has priority', (
+    tester,
+  ) async {
+    final requests = <String>[];
+    var remote = {
+      ...status('playing', percent: 100),
+      'selected_source': 'rtp',
+      'output_muted': false,
+    };
+    final service = LocalAudioService(
+      available: true,
+      runner: (executable, arguments) async {
+        final request = jsonDecode(arguments[1]) as Map<String, dynamic>;
+        requests.add(request['action'] as String);
+        if (request['action'] == 'standby') {
+          remote = {
+            ...remote,
+            'state': 'readyMuted',
+            'muted': true,
+            'selected_source': 'snapcast',
+          };
+        }
+        if (request['action'] == 'unmute') {
+          remote = {
+            ...remote,
+            'state': 'playing',
+            'muted': false,
+            'selected_source': 'rtp',
+          };
+        }
+        return response(remote);
+      },
+    );
+    service.rtp = RtpStatus(remote);
+    service.playbackRequested = true;
+
+    Future<void> follow({
+      bool spotifyActive = false,
+      bool includeLaptop = true,
+    }) => service.followGroupPriority(
+      configuration: SystemConfiguration(
+        stateId: 'state',
+        revision: 1,
+        speakers: const [
+          ConfiguredSpeaker(
+            id: 'configured',
+            name: 'Living room',
+            snapClientId: 'speaker',
+            sensorId: null,
+            fullVolumeDistance: 1000,
+            muteDistance: 5000,
+            level: 100,
+            calibrated: true,
+          ),
+        ],
+        groups: [
+          PlaybackGroup(
+            id: 'group',
+            name: 'Default',
+            speakerIds: const ['configured'],
+            sourcePriority: ['spotify', if (includeLaptop) 'laptop'],
+            volumeMode: 'manual',
+            masterVolume: 100,
+            muted: false,
+          ),
+        ],
+        sources: const [],
+      ),
+      runtime: SystemRuntime(
+        onlineSnapClients: const [],
+        sources: [AudioSourceStatus(id: 'spotify', active: spotifyActive)],
+      ),
+      desktopActive: false,
+    );
+
+    await follow();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [localAudioServiceProvider.overrideWith((ref) => service)],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SpeakerLaptopAudio(
+              receiver: SnapClientInfo(id: 'speaker', name: 'Living room'),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Playing laptop audio'), findsOneWidget);
+    expect(find.text('Connected · Following group priority'), findsNothing);
+    expect(requests, isEmpty);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+
+    await follow(spotifyActive: true);
+    await tester.pump();
+    expect(find.text('Connected · Following group priority'), findsOneWidget);
+    expect(find.text('Playing laptop audio'), findsNothing);
+
+    await follow();
+    await tester.pump();
+    expect(find.text('Playing laptop audio'), findsOneWidget);
+
+    await follow(includeLaptop: false);
+    await tester.pump();
+    expect(find.text('Playing laptop audio'), findsNothing);
+    expect(find.text('Connected · Following group priority'), findsOneWidget);
+    expect(requests, ['standby', 'unmute', 'standby']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('startup errors replace the connecting label', (tester) async {
     final service = LocalAudioService(
       available: true,
@@ -57,6 +170,50 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Connecting...'), findsNothing);
     expect(find.text('Connection needs attention'), findsOneWidget);
+    expect(find.byType(ExpansionTile), findsNothing);
+    expect(find.byType(SelectableText), findsNothing);
+    expect(find.byType(TextButton), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('pending recovery can be stopped with the existing switch', (
+    tester,
+  ) async {
+    final requests = <String>[];
+    final service = LocalAudioService(
+      available: true,
+      runner: (executable, arguments) async {
+        final request = jsonDecode(arguments[1]) as Map<String, dynamic>;
+        requests.add(request['action'] as String);
+        return response(status('idle'));
+      },
+    );
+    service.rtp = RtpStatus(status('recoveryPending'));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [localAudioServiceProvider.overrideWith((ref) => service)],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SpeakerLaptopAudio(
+              receiver: SnapClientInfo(id: 'speaker', name: 'Living room'),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Connection needs attention'), findsOneWidget);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+    expect(find.byType(TextButton), findsNothing);
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(requests, ['stop']);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isFalse,
+    );
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

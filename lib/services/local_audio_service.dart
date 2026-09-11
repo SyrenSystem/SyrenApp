@@ -53,7 +53,6 @@ class LocalAudioService extends ChangeNotifier {
   // The mute revision at the moment a failed heartbeat left the controller state unknown.
   int? _heartbeatDoubtRevision;
   bool _heartbeatFailed = false;
-  String? _configuredGroupId;
   bool? _configuredMuted;
   int? _configuredVolume;
 
@@ -82,7 +81,11 @@ class LocalAudioService extends ChangeNotifier {
     final selected = group?.sourcePriority
         .where((source) => active[source] == true)
         .firstOrNull;
-    _priorityAllowsPlayback = selected == 'laptop';
+    // Keep laptop audio ready between sounds when no other source is active.
+    _priorityAllowsPlayback =
+        selected == 'laptop' ||
+        (selected == null &&
+            (group?.sourcePriority.contains('laptop') ?? false));
     _priorityGroupMuted = group?.muted ?? false;
     // Only changes made to the stored group count, so a local slider ramp is never undone by stale configuration.
     final configuredVolume = group != null && speaker != null
@@ -92,13 +95,19 @@ class LocalAudioService extends ChangeNotifier {
             group.sourceLevel('laptop'),
           )
         : null;
-    final sameGroup = group?.id == _configuredGroupId;
-    final mutedChanged = sameGroup && group?.muted != _configuredMuted;
-    final volumeChanged = sameGroup && configuredVolume != _configuredVolume;
-    _configuredGroupId = group?.id;
+    final mutedChanged =
+        _configuredMuted != null && group?.muted != _configuredMuted;
+    final volumeChanged = configuredVolume != _configuredVolume;
     _configuredMuted = group?.muted;
     _configuredVolume = configuredVolume;
-    if (!playbackRequested || enablingPlayback) return;
+    if (!playbackRequested) return;
+    if (enablingPlayback) {
+      if (volumeChanged && configuredVolume != null) {
+        _pendingPlaybackVolume = configuredVolume;
+      }
+      if (mutedChanged && group != null) _pendingPlaybackMuted = group.muted;
+      return;
+    }
     if (!_priorityAllowsPlayback) {
       if ((!_prioritySuspended || _standbyMuted != _priorityGroupMuted) &&
           ['playing', 'readyMuted'].contains(rtp.state)) {
@@ -123,8 +132,12 @@ class LocalAudioService extends ChangeNotifier {
           speakerLevel: speaker.level,
         );
       }
-    } else if (volumeChanged && configuredVolume != rtp.percent) {
-      await setPlaybackVolume(configuredVolume!);
+    }
+    if (_priorityAllowsPlayback &&
+        volumeChanged &&
+        configuredVolume != null &&
+        configuredVolume != rtp.percent) {
+      await setPlaybackVolume(configuredVolume);
     }
   }
 
@@ -179,7 +192,11 @@ class LocalAudioService extends ChangeNotifier {
         }
         if (rtp.percent != volume || !canUnmute) return;
         _resumePending = false;
-        if (!muted) await unmuteRtp();
+        if (muted || _priorityGroupMuted) {
+          if (rtp.outputMuted != true) await muteRtp();
+        } else {
+          await unmuteRtp();
+        }
       } catch (_) {
         // A failed ramp drops the intent so a recovery loop cannot keep retrying it.
         playbackRequested = false;
@@ -190,6 +207,8 @@ class LocalAudioService extends ChangeNotifier {
     _resumePending = false;
     final intent = ++_playbackIntent;
     _startingPlayback = true;
+    _pendingPlaybackVolume = volume;
+    _pendingPlaybackMuted = muted;
     rtpError = null;
     _changed();
     try {
@@ -204,8 +223,6 @@ class LocalAudioService extends ChangeNotifier {
         throw StateError(rtp.error ?? 'Unable to connect to the speaker.');
       }
       _pendingPlaybackSession = rtp.session;
-      _pendingPlaybackVolume = volume;
-      _pendingPlaybackMuted = muted;
       _playbackDeadline = Timer(const Duration(seconds: 60), () {
         if (_pendingPlaybackSession == null) return;
         rtpError = 'The speaker did not become ready. Try turning it on again.';
@@ -241,24 +258,17 @@ class LocalAudioService extends ChangeNotifier {
     }
     if (!canUnmute || _applyingPlaybackVolume) return;
     _applyingPlaybackVolume = true;
-    unawaited(
-      _finishPlayback(
-        session,
-        _playbackIntent,
-        _pendingPlaybackVolume!,
-        _pendingPlaybackMuted,
-      ),
-    );
+    unawaited(_finishPlayback(session, _playbackIntent));
   }
 
-  Future<void> _finishPlayback(
-    String session,
-    int intent,
-    int volume,
-    bool muted,
-  ) async {
+  Future<void> _finishPlayback(String session, int intent) async {
     try {
-      await setPlaybackVolume(volume);
+      int? volume;
+      do {
+        volume = _pendingPlaybackVolume;
+        if (volume == null || intent != _playbackIntent) return;
+        await setPlaybackVolume(volume);
+      } while (intent == _playbackIntent && volume != _pendingPlaybackVolume);
       if (intent != _playbackIntent ||
           rtp.session != session ||
           rtp.generation != 1 ||
@@ -268,10 +278,13 @@ class LocalAudioService extends ChangeNotifier {
       if (rtp.percent != volume) {
         throw StateError('Speaker volume could not be confirmed.');
       }
+      final muted = _pendingPlaybackMuted;
       _cancelPlaybackIntent();
       if (!_priorityAllowsPlayback) {
         await standbyRtp(muted: _priorityGroupMuted);
-      } else if (!muted) {
+      } else if (muted || _priorityGroupMuted) {
+        if (rtp.outputMuted != true) await muteRtp();
+      } else {
         await unmuteRtp();
       }
     } catch (error) {

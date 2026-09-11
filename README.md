@@ -2,6 +2,8 @@
 
 App for the SyrenSystem.
 
+Before completing a feature or fix, run `python3 scripts/audio_gate.py`. See [the audio regression gate](AUDIO_TESTING.md) for coverage, CI checks, and physical acceptance requirements.
+
 The SyrenApp allows the user to inspect sensor distances, configure logical speakers, create playback groups, order audio source priority, and control group and speaker volume. In the background, it reads SyrenSensor distances and propagates them to SyrenServer.
 
 ## Platform support

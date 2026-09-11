@@ -48,7 +48,7 @@ def main():
         hardware.write_text('format: S32_LE\nchannels: 2\nrate: 48000 (48000/1)\nperiod_size: 128\nbuffer_size: 384\n')
         tone = b''.join(struct.pack('<hh', *([int(2000 * math.sin(index * 2 * math.pi * 400 / 48000))] * 2))
                         for index in range(48000))
-        (directory / 'snapcast.raw').write_bytes(tone * 20)
+        (directory / 'snapcast.raw').write_bytes(tone * 60)
         import shlex
         frontend = directory / 'snapclient'
         frontend.write_text('#!/bin/sh\nexec paplay --raw --rate=48000 --channels=2 --format=s16le --device=syren_snapcast_gain ' + shlex.quote(str(directory / 'snapcast.raw')) + '\n')
@@ -107,19 +107,38 @@ def main():
                 offset = capture.stat().st_size
                 time.sleep(.25)
                 data = capture.read_bytes()[offset:]
-                return struct.unpack('<' + 'h' * (len(data) // 2), data)[::2]
+                channels = struct.unpack('<' + 'h' * (len(data) // 2), data)
+                assert channels, 'Recorder stopped producing audio'
+                assert max(abs(left - right) for left, right in zip(channels[::2], channels[1::2])) <= 2, 'Stereo channels differ'
+                return channels[::2]
 
             evidence = []
-            for selected in ['snapcast', 'rtp', 'snapcast']:
+            for selected in ['snapcast', 'rtp'] * 12:
+                offset = capture.stat().st_size // 4 * 4
+                started = time.monotonic()
                 if selected == 'snapcast':
                     receiver.standby()
                 else:
                     receiver.set_volume(40, False)
+                control_seconds = time.monotonic() - started
+                assert control_seconds < .25, f'Source control exceeded 250 ms: {control_seconds}'
                 samples = sample()
                 levels = {frequency: round(amplitude(samples, frequency), 2) for frequency in [400, 1000]}
                 assert levels[400 if selected == 'snapcast' else 1000] > 100, levels
                 assert levels[1000 if selected == 'snapcast' else 400] < 25, levels
-                evidence.append({'selected': selected, 'amplitudes': levels})
+                transition = capture.read_bytes()[offset:]
+                transition_samples = struct.unpack('<' + 'h' * (len(transition) // 2), transition)[::2]
+                silence = 0
+                longest_silence = 0
+                for value in transition_samples:
+                    silence = silence + 1 if abs(value) <= 2 else 0
+                    longest_silence = max(silence, longest_silence)
+                assert longest_silence / 48000 < .25, 'Source handoff cut out for 250 ms'
+                receiver.check_health()
+                assert identities == [receiver.process.pid] + [process.pid for process in receiver.children]
+                evidence.append({'selected': selected, 'amplitudes': levels,
+                                 'control_ms': round(control_seconds * 1000, 2),
+                                 'silence_ms': round(longest_silence / 48, 2)})
             frequency[0] = 1600
             time.sleep(.5)
             receiver.set_volume(40, False)
@@ -140,10 +159,16 @@ def main():
             sender.close()
             ingress.running = False
             ingress.close()
-            if recorder:
-                recorder.terminate()
-                recorder.wait(timeout=3)
-            receiver.stop()
+            try:
+                if recorder:
+                    recorder.terminate()
+                    try:
+                        recorder.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        recorder.kill()
+                        recorder.wait(timeout=3)
+            finally:
+                receiver.stop()
     assert subprocess.check_output(['pactl', 'get-default-sink']) == before
 
 

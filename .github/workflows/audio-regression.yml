@@ -1,0 +1,43 @@
+name: Audio regression
+
+on: [push, pull_request, merge_group, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  software:
+    name: Audio regression gate (app)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.3'
+          cache: true
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y libserialport0
+      - name: Run all app, receiver, routing and measurement tests
+        run: python3 scripts/audio_gate.py --scope app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-software-evidence
+          path: build/audio-gate/
+  signal:
+    name: Audio regression gate (signal)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 10
+    steps:
+      - name: Install isolated audio tools
+        run: apt-get update && apt-get install -y git ca-certificates python3 pipewire pipewire-pulse pipewire-bin pulseaudio-utils dbus
+      - uses: actions/checkout@v4
+      - name: Measure source isolation and handoff continuity
+        run: dbus-run-session -- sh scripts/isolated_audio_gate.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-signal-evidence
+          path: build/audio-gate/

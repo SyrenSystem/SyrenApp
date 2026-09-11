@@ -192,6 +192,25 @@ void main() {
     expect(audio.rtp.state, 'playing');
   });
 
+  test(
+    'laptop stays selected between sounds when other sources are idle',
+    () async {
+      await follow(['spotify', 'laptop'], spotify: false, laptop: false);
+      await audio.enablePlayback(groupVolume: 80, speakerLevel: 50);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(audio.rtp.state, 'playing');
+      expect(audio.waitingForPriority, isFalse);
+      final requestsBeforePause = List<String>.of(requests);
+      await follow(['spotify', 'laptop'], spotify: false, laptop: true);
+      await follow(['spotify', 'laptop'], spotify: false, laptop: false);
+      expect(audio.rtp.state, 'playing');
+      expect(requests, requestsBeforePause);
+      await follow(['spotify', 'laptop'], spotify: false, laptop: true);
+      expect(requests, requestsBeforePause);
+    },
+  );
+
   test('editing existing priority changes transport', () async {
     await follow(['laptop', 'spotify']);
     await audio.enablePlayback(groupVolume: 80, speakerLevel: 50);

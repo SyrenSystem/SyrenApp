@@ -120,6 +120,7 @@ class _SpeakerLaptopAudioState extends ConsumerState<SpeakerLaptopAudio> {
               'playing',
               'readyMuted',
               'recoveringMuted',
+              'recoveryPending',
               'stopping',
             ].contains(status.state));
     final otherSpeakerActive = !selected && status.state != 'idle';
@@ -149,62 +150,15 @@ class _SpeakerLaptopAudioState extends ConsumerState<SpeakerLaptopAudio> {
             _ => 'Experimental · One speaker',
           }
         : 'Experimental · One speaker';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SwitchListTile(
-          title: const Text('Low-latency laptop audio'),
-          subtitle: Text(
-            service.muteFeedback ?? (_settingUp ? 'Setting up...' : label),
-          ),
-          value: enabled,
-          onChanged:
-              _settingUp || otherSpeakerActive || status.state == 'stopping'
-              ? null
-              : (value) => _toggle(service, value),
-        ),
-        if (message != null || (selected && status.state == 'recoveryPending'))
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Audio connection interrupted. Turn low-latency audio off and on to reconnect.',
-                ),
-                if (selected && status.state == 'recoveryPending')
-                  TextButton(
-                    onPressed: () async {
-                      try {
-                        await service.recoverRtp();
-                      } catch (error) {
-                        if (mounted) setState(() => _error = error.toString());
-                      }
-                    },
-                    child: const Text('Try again'),
-                  ),
-                ExpansionTile(
-                  title: const Text('Connection details'),
-                  children: [
-                    SelectableText(message ?? 'Restoration is pending.'),
-                    TextButton(
-                      onPressed: () async {
-                        await showDialog<void>(
-                          context: context,
-                          builder: (context) => ReceiverConnectionDialog(
-                            service: service,
-                            receivers: [widget.receiver],
-                          ),
-                        );
-                      },
-                      child: const Text('Connection settings'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ],
+    return SwitchListTile(
+      title: const Text('Low-latency laptop audio'),
+      subtitle: Text(
+        service.muteFeedback ?? (_settingUp ? 'Setting up...' : label),
+      ),
+      value: enabled,
+      onChanged: _settingUp || otherSpeakerActive || status.state == 'stopping'
+          ? null
+          : (value) => _toggle(service, value),
     );
   }
 }

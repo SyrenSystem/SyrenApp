@@ -94,7 +94,9 @@ if state_path.exists():
         with tempfile.TemporaryDirectory() as temporary:
             subprocess.run(['sh', str(DIRECTORY / 'packaging/build-receiver-deb.sh'), temporary],
                            check=True, stdout=subprocess.DEVNULL)
-            package = Path(temporary) / 'syren-rtp-receiver_1.1.2_all.deb'
+            packages = list(Path(temporary).glob('syren-rtp-receiver_*_all.deb'))
+            self.assertEqual(len(packages), 1)
+            package = packages[0]
             listing = subprocess.check_output(['dpkg-deb', '-c', str(package)], text=True)
             for filename in ('receiver.py', 'worker.py', 'shared_graph.py', 'shared-receiver.conf.in', 'pulse.conf', 'ingress.py', 'compatibility.json', 'syren-rtp-broker.socket'):
                 self.assertIn(filename, listing)
@@ -125,7 +127,9 @@ if state_path.exists():
             subprocess.run(['sh', str(DIRECTORY / 'packaging/build-receiver-deb.sh'), temporary],
                            check=True, stdout=subprocess.DEVNULL)
             controls = directory / 'controls'
-            subprocess.run(['dpkg-deb', '-e', str(directory / 'syren-rtp-receiver_1.1.2_all.deb'), str(controls)], check=True)
+            packages = list(directory.glob('syren-rtp-receiver_*_all.deb'))
+            self.assertEqual(len(packages), 1)
+            subprocess.run(['dpkg-deb', '-e', str(packages[0]), str(controls)], check=True)
             preinst = controls / 'preinst'
             preinst.write_text(preinst.read_text().replace('/usr/lib/syren-rtp', str(helper.parent))
                                .replace('/etc/syrensystem', str(configuration)))
