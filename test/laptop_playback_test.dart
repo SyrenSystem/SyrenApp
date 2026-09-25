@@ -33,6 +33,23 @@ ProcessResult response(Map<String, dynamic> value) =>
     ProcessResult(1, 0, jsonEncode(value), '');
 
 void main() {
+  test('lowering volume reaches the target in one confirmed command', () async {
+    final levels = <int>[];
+    final service = LocalAudioService(
+      available: true,
+      runner: (_, arguments) async {
+        final request = jsonDecode(arguments[1]) as Map<String, dynamic>;
+        levels.add(request['percent'] as int);
+        return response(status('playing', percent: levels.last));
+      },
+    );
+    addTearDown(service.dispose);
+    service.rtp = RtpStatus(status('playing', percent: 90));
+    await service.setPlaybackVolume(5);
+    expect(levels, [5]);
+    expect(service.rtp.percent, 5);
+  });
+
   testWidgets('idle laptop stays playing unless another source has priority', (
     tester,
   ) async {

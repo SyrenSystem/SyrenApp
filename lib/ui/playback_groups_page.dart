@@ -5,6 +5,7 @@ import 'package:final_project/models/system_configuration.dart';
 import 'package:final_project/providers/app_state_providers.dart';
 import 'package:final_project/providers/services_providers.dart';
 import 'package:final_project/services/local_audio_service.dart';
+import 'package:final_project/services/volume_change_queue.dart';
 import 'package:final_project/ui/command_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -266,6 +267,9 @@ class _GroupCard extends ConsumerStatefulWidget {
 class _GroupCardState extends ConsumerState<_GroupCard> {
   late double _masterVolume;
   bool _dragging = false;
+  bool _saving = false;
+  int _editVersion = 0;
+  double? _requestedValue;
 
   @override
   void initState() {
@@ -276,7 +280,7 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
   @override
   void didUpdateWidget(covariant _GroupCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_dragging) {
+    if (!_dragging && !_saving) {
       _masterVolume = widget.group.masterVolume;
     }
   }
@@ -371,7 +375,10 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
               max: 100,
               divisions: 100,
               onChangeStart: (_) => setState(() => _dragging = true),
-              onChanged: (value) => setState(() => _masterVolume = value),
+              onChanged: (value) {
+                setState(() => _masterVolume = value);
+                unawaited(_saveMasterVolume(value));
+              },
               onChangeEnd: (value) {
                 setState(() {
                   _dragging = false;
@@ -396,48 +403,81 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
   }
 
   Future<void> _saveMasterVolume(double value) async {
-    final latest = ref.read(systemConfigurationProvider);
-    final group = latest?.groups
+    final savedValue = ref
+        .read(systemConfigurationProvider)
+        ?.groups
         .where((candidate) => candidate.id == widget.group.id)
-        .firstOrNull;
-    if (latest == null || group == null) {
-      if (mounted) {
-        showLatestSnackBar(
-          context,
-          const SnackBar(content: Text('Group no longer exists')),
-        );
-      }
+        .firstOrNull
+        ?.masterVolume;
+    if ((_saving && _requestedValue == value) ||
+        (!_saving && savedValue == value)) {
       return;
     }
-    final audio = ref.read(localAudioServiceProvider);
-    if (_includesLaptopAudio(latest, group, audio)) {
-      try {
-        final speaker = latest.speakers.firstWhere(
-          (speaker) =>
-              speaker.snapClientId == audio.rtp.pairing?['snapclient_id'],
-        );
-        await audio.setPlaybackLevels(
-          groupVolume: value,
-          sourceLevel: group.sourceLevel('laptop'),
-          speakerLevel: speaker.level,
-        );
-      } catch (error) {
-        if (mounted) {
-          showLatestSnackBar(
-            context,
-            SnackBar(
-              content: Text(
-                error is StateError
-                    ? error.message.toString()
-                    : error.toString(),
-              ),
+    _requestedValue = value;
+    final version = ++_editVersion;
+    _saving = true;
+    try {
+      final result = await ref
+          .read(volumeChangeQueueProvider)
+          .enqueue(
+            'group:${widget.group.id}',
+            (configuration) => _sendMasterVolume(
+              value,
+              configuration,
+              () => mounted && version == _editVersion,
             ),
           );
-        }
-        return;
+      if (mounted && version == _editVersion && result?.success != true) {
+        showCommandFeedback(context, result, 'Volume saved');
+      }
+    } catch (error) {
+      if (mounted && version == _editVersion) {
+        showLatestSnackBar(context, SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted && version == _editVersion) {
+        setState(() {
+          _saving = false;
+          if (!_dragging) {
+            _masterVolume =
+                ref
+                    .read(systemConfigurationProvider)
+                    ?.groups
+                    .where((group) => group.id == widget.group.id)
+                    .firstOrNull
+                    ?.masterVolume ??
+                widget.group.masterVolume;
+          }
+        });
       }
     }
-    final result = await ref
+  }
+
+  Future<CommandResult?> _sendMasterVolume(
+    double value,
+    SystemConfiguration latest,
+    bool Function() isCurrent,
+  ) async {
+    if (!isCurrent()) throw const VolumeChangeSuperseded();
+    final group = latest.groups
+        .where((candidate) => candidate.id == widget.group.id)
+        .firstOrNull;
+    if (group == null) throw StateError('Group no longer exists');
+    final audio = ref.read(localAudioServiceProvider);
+    if (_includesLaptopAudio(latest, group, audio)) {
+      final speaker = latest.speakers.firstWhere(
+        (speaker) =>
+            speaker.snapClientId == audio.rtp.pairing?['snapclient_id'],
+      );
+      await audio.setPlaybackLevels(
+        isCurrent: isCurrent,
+        groupVolume: value,
+        sourceLevel: group.sourceLevel('laptop'),
+        speakerLevel: speaker.level,
+      );
+    }
+    if (!isCurrent()) throw const VolumeChangeSuperseded();
+    return ref
         .read(mqttServiceProvider)
         .upsertGroup(
           expectedRevision: latest.revision,
@@ -450,9 +490,6 @@ class _GroupCardState extends ConsumerState<_GroupCard> {
           masterVolume: value,
           muted: group.muted,
         );
-    if (mounted) {
-      showCommandFeedback(context, result, 'Volume saved');
-    }
   }
 }
 
@@ -473,6 +510,9 @@ class _SpeakerLevelRow extends ConsumerStatefulWidget {
 class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
   late double _level;
   bool _dragging = false;
+  bool _saving = false;
+  int _editVersion = 0;
+  double? _requestedValue;
 
   @override
   void initState() {
@@ -483,7 +523,7 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
   @override
   void didUpdateWidget(covariant _SpeakerLevelRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_dragging) {
+    if (!_dragging && !_saving) {
       _level = widget.speaker.level;
     }
   }
@@ -507,7 +547,10 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
                 max: 100,
                 divisions: 100,
                 onChangeStart: (_) => setState(() => _dragging = true),
-                onChanged: (value) => setState(() => _level = value),
+                onChanged: (value) {
+                  setState(() => _level = value);
+                  unawaited(_save(value));
+                },
                 onChangeEnd: (value) {
                   setState(() {
                     _dragging = false;
@@ -533,46 +576,83 @@ class _SpeakerLevelRowState extends ConsumerState<_SpeakerLevelRow> {
   }
 
   Future<void> _save(double value) async {
-    final configuration = ref.read(systemConfigurationProvider);
-    if (configuration == null) return;
+    final savedValue = ref
+        .read(systemConfigurationProvider)
+        ?.speakers
+        .where((candidate) => candidate.id == widget.speaker.id)
+        .firstOrNull
+        ?.level;
+    if ((_saving && _requestedValue == value) ||
+        (!_saving && savedValue == value)) {
+      return;
+    }
+    _requestedValue = value;
+    final version = ++_editVersion;
+    _saving = true;
+    try {
+      final result = await ref
+          .read(volumeChangeQueueProvider)
+          .enqueue(
+            'speaker:${widget.speaker.id}',
+            (configuration) => _sendLevel(
+              value,
+              configuration,
+              () => mounted && version == _editVersion,
+            ),
+          );
+      if (mounted && version == _editVersion && result?.success != true) {
+        showCommandFeedback(context, result, 'Speaker level saved');
+      }
+    } catch (error) {
+      if (mounted && version == _editVersion) {
+        showLatestSnackBar(context, SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted && version == _editVersion) {
+        setState(() {
+          _saving = false;
+          if (!_dragging) {
+            _level =
+                ref
+                    .read(systemConfigurationProvider)
+                    ?.speakers
+                    .where((speaker) => speaker.id == widget.speaker.id)
+                    .firstOrNull
+                    ?.level ??
+                widget.speaker.level;
+          }
+        });
+      }
+    }
+  }
+
+  Future<CommandResult?> _sendLevel(
+    double value,
+    SystemConfiguration configuration,
+    bool Function() isCurrent,
+  ) async {
+    if (!isCurrent()) throw const VolumeChangeSuperseded();
     final audio = ref.read(localAudioServiceProvider);
     if (audio.rtp.active &&
         audio.rtp.pairing?['snapclient_id'] == widget.speaker.snapClientId) {
-      try {
-        final group = configuration.groups
-            .where((group) => group.speakerIds.contains(widget.speaker.id))
-            .firstOrNull;
-        await audio.setPlaybackLevels(
-          groupVolume: group?.masterVolume ?? 0,
-          sourceLevel: group?.sourceLevel('laptop') ?? 100,
-          speakerLevel: value,
-        );
-      } catch (error) {
-        if (mounted) {
-          showLatestSnackBar(
-            context,
-            SnackBar(
-              content: Text(
-                error is StateError
-                    ? error.message.toString()
-                    : error.toString(),
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      final group = configuration.groups
+          .where((group) => group.speakerIds.contains(widget.speaker.id))
+          .firstOrNull;
+      await audio.setPlaybackLevels(
+        isCurrent: isCurrent,
+        groupVolume: group?.masterVolume ?? 0,
+        sourceLevel: group?.sourceLevel('laptop') ?? 100,
+        speakerLevel: value,
+      );
     }
-    final result = await ref
+    if (!isCurrent()) throw const VolumeChangeSuperseded();
+    return ref
         .read(mqttServiceProvider)
         .setSpeakerLevel(
           expectedRevision: configuration.revision,
           speakerId: widget.speaker.id,
           level: value,
         );
-    if (mounted) {
-      showCommandFeedback(context, result, 'Speaker level saved');
-    }
   }
 }
 

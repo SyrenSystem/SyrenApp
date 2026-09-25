@@ -301,13 +301,17 @@ class LocalAudioService extends ChangeNotifier {
     }
   }
 
-  Future<void> setPlaybackVolume(int target) async {
+  Future<void> setPlaybackVolume(
+    int target, {
+    bool Function()? isCurrent,
+  }) async {
     if (target < 0 || target > 100) throw ArgumentError.value(target);
     final intent = ++_volumeIntent;
     final session = rtp.session;
     final generation = rtp.generation;
     while (rtp.percent != null && rtp.percent != target) {
       if (_disposed ||
+          (isCurrent != null && !isCurrent()) ||
           intent != _volumeIntent ||
           rtp.session != session ||
           rtp.generation != generation ||
@@ -316,12 +320,7 @@ class LocalAudioService extends ChangeNotifier {
         return;
       }
       final current = rtp.percent!;
-      await setRtpVolume(
-        target.clamp(
-          (current - 10).clamp(0, 100),
-          (current + 10).clamp(0, 100),
-        ),
-      );
+      await setRtpVolume(target.clamp(0, (current + 10).clamp(0, 100)));
       if (intent == _volumeIntent && rtp.percent == current) {
         throw StateError('Speaker volume could not be confirmed.');
       }
@@ -332,9 +331,11 @@ class LocalAudioService extends ChangeNotifier {
     required double groupVolume,
     required double speakerLevel,
     double sourceLevel = 100,
+    bool Function()? isCurrent,
   }) {
     return setPlaybackVolume(
       _combinedLevel(groupVolume, speakerLevel, sourceLevel),
+      isCurrent: isCurrent,
     );
   }
 

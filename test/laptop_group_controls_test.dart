@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -43,7 +44,12 @@ class GroupCommands extends MqttService {
     volumes.add(masterVolume);
     mutes.add(muted);
     onGroupVolume?.call(masterVolume);
-    return saved;
+    return CommandResult(
+      requestId: 'request',
+      success: true,
+      revision: expectedRevision + 1,
+      error: null,
+    );
   }
 
   @override
@@ -54,41 +60,332 @@ class GroupCommands extends MqttService {
   }) async {
     levels.add(level);
     onSpeakerLevel?.call(level);
-    return saved;
+    return CommandResult(
+      requestId: 'request',
+      success: true,
+      revision: expectedRevision + 1,
+      error: null,
+    );
   }
 }
 
-SystemConfiguration configuration(double master, double level) =>
-    SystemConfiguration(
-      stateId: 'state',
-      revision: 1,
-      speakers: [
-        ConfiguredSpeaker(
-          id: 'configured',
-          name: 'XPS',
-          snapClientId: 'speaker',
-          sensorId: null,
-          fullVolumeDistance: 1000,
-          muteDistance: 5000,
-          level: level,
-          calibrated: true,
-        ),
-      ],
-      groups: [
-        PlaybackGroup(
-          id: 'group',
-          name: 'Default',
-          speakerIds: ['configured'],
-          sourcePriority: ['laptop'],
-          volumeMode: 'manual',
-          masterVolume: master,
-          muted: false,
-        ),
-      ],
-      sources: const [AudioSource(id: 'laptop', name: 'Laptop')],
-    );
+class DelayedGroupCommands extends GroupCommands {
+  final requests =
+      <
+        ({
+          String kind,
+          int revision,
+          double value,
+          Completer<CommandResult?> completion,
+        })
+      >[];
+
+  Future<CommandResult?> hold(String kind, int revision, double value) {
+    final completion = Completer<CommandResult?>();
+    requests.add((
+      kind: kind,
+      revision: revision,
+      value: value,
+      completion: completion,
+    ));
+    return completion.future;
+  }
+
+  @override
+  Future<CommandResult?> upsertGroup({
+    required int expectedRevision,
+    required String? groupId,
+    required String name,
+    required List<String> speakerIds,
+    required List<String> sourcePriority,
+    Map<String, double>? sourceLevels,
+    required String volumeMode,
+    required double masterVolume,
+    required bool muted,
+  }) => hold('group', expectedRevision, masterVolume);
+
+  @override
+  Future<CommandResult?> setSpeakerLevel({
+    required int expectedRevision,
+    required String speakerId,
+    required double level,
+  }) => hold('speaker', expectedRevision, level);
+}
+
+SystemConfiguration configuration(
+  double master,
+  double level, {
+  int revision = 1,
+}) => SystemConfiguration(
+  stateId: 'state',
+  revision: revision,
+  speakers: [
+    ConfiguredSpeaker(
+      id: 'configured',
+      name: 'XPS',
+      snapClientId: 'speaker',
+      sensorId: null,
+      fullVolumeDistance: 1000,
+      muteDistance: 5000,
+      level: level,
+      calibrated: true,
+    ),
+  ],
+  groups: [
+    PlaybackGroup(
+      id: 'group',
+      name: 'Default',
+      speakerIds: ['configured'],
+      sourcePriority: ['laptop'],
+      volumeMode: 'manual',
+      masterVolume: master,
+      muted: false,
+    ),
+  ],
+  sources: const [AudioSource(id: 'laptop', name: 'Laptop')],
+);
 
 void main() {
+  testWidgets('a newer slider value stops an outdated local volume ramp', (
+    tester,
+  ) async {
+    final commands = DelayedGroupCommands();
+    final firstGain = Completer<ProcessResult>();
+    final levels = <int>[];
+    final service = LocalAudioService(
+      available: true,
+      runner: (_, arguments) async {
+        final request = jsonDecode(arguments[1]) as Map<String, dynamic>;
+        levels.add(request['percent'] as int);
+        if (levels.length == 1) return firstGain.future;
+        return playback.response(
+          playback.status('playing', percent: levels.last),
+        );
+      },
+    );
+    service.rtp = RtpStatus(playback.status('playing', percent: 10));
+    final container = ProviderContainer(
+      overrides: [
+        mqttServiceProvider.overrideWithValue(commands),
+        localAudioServiceProvider.overrideWith((ref) => service),
+        systemConfigurationProvider.overrideWith(
+          (ref) => configuration(10, 100),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: PlaybackGroupsPage())),
+      ),
+    );
+    final slider = tester.widget<Slider>(find.byType(Slider).first);
+    slider.onChangeStart!(10);
+    slider.onChanged!(80);
+    await tester.pump();
+    expect(levels, [20]);
+    slider.onChanged!(20);
+    slider.onChangeEnd!(20);
+    firstGain.complete(
+      playback.response(playback.status('playing', percent: 20)),
+    );
+    await tester.pumpAndSettle();
+    expect(levels, [
+      20,
+    ], reason: 'The old 80 percent ramp must stop after its in flight step');
+    expect(commands.requests.single.value, 20);
+    commands.requests.single.completion.complete(
+      const CommandResult(
+        requestId: 'saved',
+        success: true,
+        revision: 2,
+        error: null,
+      ),
+    );
+    container.read(systemConfigurationProvider.notifier).state = configuration(
+      20,
+      100,
+      revision: 2,
+    );
+    await tester.pump();
+    expect(service.rtp.percent, 20);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'volume sends while dragging and does not save twice on release',
+    (tester) async {
+      final commands = DelayedGroupCommands();
+      final container = ProviderContainer(
+        overrides: [
+          mqttServiceProvider.overrideWithValue(commands),
+          localAudioServiceProvider.overrideWith(
+            (ref) => LocalAudioService(available: false),
+          ),
+          systemConfigurationProvider.overrideWith(
+            (ref) => configuration(80, 50),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: Scaffold(body: PlaybackGroupsPage())),
+        ),
+      );
+      final slider = tester.widget<Slider>(find.byType(Slider).first);
+      slider.onChangeStart!(80);
+      slider.onChanged!(60);
+      await tester.pump();
+      expect(
+        commands.requests,
+        hasLength(1),
+        reason: 'Playback should react before the pointer is released',
+      );
+      slider.onChanged!(30);
+      await tester.pump();
+      commands.requests.first.completion.complete(
+        const CommandResult(
+          requestId: 'first',
+          success: true,
+          revision: 2,
+          error: null,
+        ),
+      );
+      container.read(systemConfigurationProvider.notifier).state =
+          configuration(60, 50, revision: 2);
+      await tester.pump();
+      expect(commands.requests, hasLength(2));
+      expect(commands.requests.last.value, 30);
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 30);
+      slider.onChangeEnd!(30);
+      commands.requests.last.completion.complete(
+        const CommandResult(
+          requestId: 'last',
+          success: true,
+          revision: 3,
+          error: null,
+        ),
+      );
+      container.read(systemConfigurationProvider.notifier).state =
+          configuration(30, 50, revision: 3);
+      await tester.pump();
+      expect(commands.requests, hasLength(2));
+      expect(
+        find.text('Volume saved'),
+        findsNothing,
+        reason: 'Routine slider changes do not need repeated snackbars',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final snapshotFirst in [false, true]) {
+    testWidgets(
+      'rapid slider edits preserve the latest value, snapshot first $snapshotFirst',
+      (tester) async {
+        final commands = DelayedGroupCommands();
+        final container = ProviderContainer(
+          overrides: [
+            mqttServiceProvider.overrideWithValue(commands),
+            localAudioServiceProvider.overrideWith(
+              (ref) => LocalAudioService(available: false),
+            ),
+            systemConfigurationProvider.overrideWith(
+              (ref) => configuration(80, 50),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              home: Scaffold(body: PlaybackGroupsPage()),
+            ),
+          ),
+        );
+        void edit(int index, double value) {
+          final slider = tester.widget<Slider>(find.byType(Slider).at(index));
+          slider.onChangeStart!(slider.value);
+          slider.onChanged!(value);
+          slider.onChangeEnd!(value);
+        }
+
+        void publish(int revision, double master, double level) {
+          final updated = configuration(master, level);
+          container
+              .read(systemConfigurationProvider.notifier)
+              .state = SystemConfiguration(
+            stateId: updated.stateId,
+            revision: revision,
+            speakers: updated.speakers,
+            groups: updated.groups,
+            sources: updated.sources,
+          );
+        }
+
+        Future<void> accept(int index, double master, double level) async {
+          final request = commands.requests[index];
+          final result = CommandResult(
+            requestId: 'request-$index',
+            success: true,
+            revision: request.revision + 1,
+            error: null,
+          );
+          if (snapshotFirst) {
+            publish(result.revision, master, level);
+            await tester.pump();
+            expect(commands.requests, hasLength(index + 1));
+            request.completion.complete(result);
+          } else {
+            request.completion.complete(result);
+            await tester.pump();
+            expect(commands.requests, hasLength(index + 1));
+            publish(result.revision, master, level);
+          }
+          await tester.pump();
+        }
+
+        edit(0, 60);
+        await tester.pump();
+        edit(0, 45);
+        edit(0, 20);
+        edit(1, 25);
+        await tester.pump();
+        expect(
+          commands.requests,
+          hasLength(1),
+          reason: 'Only one configuration save can use the current revision',
+        );
+        expect(tester.widget<Slider>(find.byType(Slider).first).value, 20);
+        expect(tester.widget<Slider>(find.byType(Slider).last).value, 25);
+
+        await accept(0, 60, 50);
+        expect(commands.requests, hasLength(2));
+        expect(
+          commands.requests[1].value,
+          20,
+          reason: 'The intermediate 45 percent edit is superseded',
+        );
+        expect(commands.requests[1].revision, 2);
+        expect(tester.widget<Slider>(find.byType(Slider).first).value, 20);
+        expect(tester.widget<Slider>(find.byType(Slider).last).value, 25);
+        await accept(1, 20, 50);
+        expect(commands.requests, hasLength(3));
+        expect(commands.requests[2].kind, 'speaker');
+        expect(commands.requests[2].revision, 3);
+        await accept(2, 20, 25);
+        expect(tester.widget<Slider>(find.byType(Slider).first).value, 20);
+        expect(tester.widget<Slider>(find.byType(Slider).last).value, 25);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
   testWidgets('group editor saves source balance without changing master', (
     tester,
   ) async {
@@ -444,13 +741,23 @@ void main() {
       addTearDown(container.dispose);
       commands.onGroupVolume = (master) {
         final current = container.read(systemConfigurationProvider)!;
-        container.read(systemConfigurationProvider.notifier).state =
-            configuration(master, current.speakers.single.level);
+        container
+            .read(systemConfigurationProvider.notifier)
+            .state = configuration(
+          master,
+          current.speakers.single.level,
+          revision: current.revision + 1,
+        );
       };
       commands.onSpeakerLevel = (level) {
         final current = container.read(systemConfigurationProvider)!;
-        container.read(systemConfigurationProvider.notifier).state =
-            configuration(current.groups.single.masterVolume, level);
+        container
+            .read(systemConfigurationProvider.notifier)
+            .state = configuration(
+          current.groups.single.masterVolume,
+          level,
+          revision: current.revision + 1,
+        );
       };
       await tester.pumpWidget(
         UncontrolledProviderScope(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:final_project/services/group_audio_coordinator.dart';
+import 'package:final_project/services/volume_change_queue.dart';
 
 import 'package:final_project/models/position_3d.dart';
 import 'package:final_project/models/speaker_data.dart';
@@ -16,6 +17,15 @@ final mqttServiceProvider = Provider<MqttService>((ref) {
   final service = MqttService();
   ref.onDispose(() => unawaited(service.disconnect()));
   return service;
+});
+
+final volumeChangeQueueProvider = Provider<VolumeChangeQueue>((ref) {
+  final queue = VolumeChangeQueue(ref.read(systemConfigurationProvider));
+  ref.listen(systemConfigurationProvider, (_, configuration) {
+    queue.updateConfiguration(configuration);
+  });
+  ref.onDispose(queue.dispose);
+  return queue;
 });
 
 final mqttConnectionRetryDelayProvider = Provider<Duration>((ref) {
