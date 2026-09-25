@@ -30,7 +30,9 @@ jobs:
   signal:
     name: Audio regression gate (signal)
     runs-on: ubuntu-latest
-    container: debian:trixie
+    container:
+      image: debian:trixie
+      options: --ulimit rtprio=88:88
     timeout-minutes: 10
     steps:
       - name: Install isolated audio tools

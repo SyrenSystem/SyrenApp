@@ -21,6 +21,8 @@ Prerequisites are Linux, Python 3, Flutter 3.44.3, libserialport, dpkg tooling, 
 
 The measurement tests also import NumPy and GStreamer's Python introspection bindings. On Debian or Ubuntu, install `python3-numpy python3-gi gir1.2-gstreamer-1.0` and use `/usr/bin/python3` so those distribution packages are visible. Receiver packaging tests use `pw-config` from `pipewire-bin` to parse the actual packaged Pulse configuration.
 
+The signal container sets `--ulimit rtprio=88:88`, matching the receiver service's `LimitRTPRIO=88`. This lets the private Pulse bridge load its real time module without a desktop RTKit service. The signal test requires that module to remain loaded; a container without either scheduling mechanism fails the check. See [PipeWire's real time module requirements](https://gitlab.freedesktop.org/pipewire/pipewire/-/blob/1.4.2/src/modules/module-rt.c).
+
 ## Required behavior
 
 The group's ordered source list selects the programme. Low latency changes the laptop transport only. When Spotify is first and playing, enabling low latency must not steal priority. When Spotify pauses or fails and laptop audio remains active, laptop playback should return through RTP if connected, otherwise through Snapcast. A muted group stays silent through all handoffs. When every source is idle and laptop audio is included in the group priority, enabled RTP stays selected between sounds. Pausing and resuming laptop audio must not issue a branch switch or wait for an activity poll in this state.
