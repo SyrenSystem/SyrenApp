@@ -79,6 +79,8 @@ def main():
 
         try:
             receiver.start()
+            pulse_mappings = Path(f'/proc/{receiver.children[0].pid}/maps').read_text()
+            assert 'libpipewire-module-rt.so' in pulse_mappings, 'Pulse bridge did not load real time scheduling'
             ingress.open()
             threading.Thread(target=ingress.run, daemon=True).start()
             transmission = threading.Thread(target=transmit, daemon=True)

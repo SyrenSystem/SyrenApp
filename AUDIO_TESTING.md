@@ -19,6 +19,8 @@ The second command creates a temporary PipeWire/Pulse session and virtual sink. 
 
 Prerequisites are Linux, Python 3, Flutter 3.44.3, libserialport, dpkg tooling, PipeWire and its Pulse server and command line tools, Pulse client tools, and .NET 10 or Podman. CI runs the signal check in Debian trixie with a private D-Bus session. Missing sound tools fail the gate instead of skipping it.
 
+The measurement tests also import NumPy and GStreamer's Python introspection bindings. On Debian or Ubuntu, install `python3-numpy python3-gi gir1.2-gstreamer-1.0` and use `/usr/bin/python3` so those distribution packages are visible. Receiver packaging tests use `pw-config` from `pipewire-bin` to parse the actual packaged Pulse configuration.
+
 ## Required behavior
 
 The group's ordered source list selects the programme. Low latency changes the laptop transport only. When Spotify is first and playing, enabling low latency must not steal priority. When Spotify pauses or fails and laptop audio remains active, laptop playback should return through RTP if connected, otherwise through Snapcast. A muted group stays silent through all handoffs. When every source is idle and laptop audio is included in the group priority, enabled RTP stays selected between sounds. Pausing and resuming laptop audio must not issue a branch switch or wait for an activity poll in this state.

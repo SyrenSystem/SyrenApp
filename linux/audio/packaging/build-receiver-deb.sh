@@ -32,7 +32,7 @@ for action in preinst postinst prerm postrm; do
 done
 cat > "$package_root/DEBIAN/control" <<'CONTROL'
 Package: syren-rtp-receiver
-Version: 1.2.0
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: all
@@ -42,4 +42,4 @@ Description: Opt in single receiver RTP audio for a trusted LAN
  Low latency, validation incomplete. Playback starts only by explicit request.
 CONTROL
 mkdir -p "$output_directory"
-dpkg-deb --root-owner-group --build "$package_root" "$output_directory/syren-rtp-receiver_1.2.0_all.deb"
+dpkg-deb --root-owner-group --build "$package_root" "$output_directory/syren-rtp-receiver_1.3.0_all.deb"

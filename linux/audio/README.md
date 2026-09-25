@@ -13,14 +13,18 @@ sh linux/audio/packaging/build-receiver-deb.sh
 
 The results are in `build/debian`. The laptop package includes the Flutter app, Snapcast sender and Python RTP controller. The architecture independent receiver package contains the broker, unprivileged audio worker, ingress filter and systemd units. Measurement programs and recordings stay in `linux/experiments/rtp` and are not packaged. `linux/packaging/install-local.sh` also installs the laptop helpers and drains any previous session first.
 
+The receiver also needs Snapclient with the `pulse` player. The verified Pi uses the upstream ARM64 Trixie `snapclient_0.35.0-1_arm64_trixie_with-pulse.deb` package and PipeWire 1.4.2. Follow the [Pi setup guide](https://github.com/SyrenSystem/SyrenDocs/blob/main/RaspberryPiHiFiBerryAMP4.md) for the pinned download, checksum, and installation. Check `snapclient --help` for the `pulse` player before pairing; the receiver package's Snapclient dependency alone does not guarantee that backend.
+
 Install the receiver package in a visible receiver terminal with interactive sudo. No password is collected or stored by the app. Select the receiver interface address, discovered Snapclient ID, SSH user and control group during configuration:
 
 ```sh
-sudo apt install ./syren-rtp-receiver_1.2.0_all.deb
-sudo syren-rtp-configure --address 192.168.1.50 --snapclient-id RECEIVER_ID --control-user LISTENER --control-group syren-audio
+sudo apt install ./syren-rtp-receiver_1.3.0_all.deb
+sudo syren-rtp-configure --address 192.168.1.50 --snapclient-id RECEIVER_ID --control-user LISTENER --control-group syren-audio --snapserver-host SERVER_HOST --snapserver-port 1704
 ```
 
 Substitute the receiver's IPv4 address, discovered identity and existing SSH user. The supplied device configuration targets `hw:sndrpihifiberry,0`. Its fixed ALSA parameter path is `/proc/asound/sndrpihifiberry/pcm0p/sub0/hw_params`. Configuration is root owned at `/etc/syrensystem/receiver.json`. Use a new SSH login after group membership changes. Installation enables the control socket only; it never starts RTP audio. Do not enable `syren-rtp-audio.service` at boot.
+
+Receiver 1.3.0 enables real time priority 82 for the private Pulse bridge that feeds Snapcast into the shared output. This keeps its audio processing ahead of ordinary tasks while the hardware graph runs at priority 83. The receiver service permits priorities up to 88. The packaged configuration and the signal check cover loading this module; effective scheduling and playback stability also require verification on the receiver.
 
 In Speakers, use **Low-latency laptop audio** on a speaker already added through **+ Speaker**. A saved connection is reused immediately. Only the first connection opens setup for that selected speaker; it does not ask the user to add the speaker again. The app resolves the discovered Snapclient hostname through local DNS or mDNS and fills in the SSH host. It suggests the laptop login name as the SSH user; edit that if the receiver uses another account. Discovery does not verify an SSH account or grant access. If name resolution is unavailable, enter the receiver address manually. Saved connection details are reused only for the same receiver identity. Port and optional absolute private key path are under **Advanced SSH settings**. Leaving the key empty uses the existing SSH agent. The host must resolve to the selected receiver interface address. Pairing retains the discovered name and ID while Snapclient is stopped and releases ALSA.
 

@@ -103,6 +103,26 @@ if state_path.exists():
             for filename in ('capture.py', 'measure.py', 'results/', 'laptop.py', '__pycache__'):
                 self.assertNotIn(filename, listing)
 
+    def test_packaged_pulse_bridge_requests_supported_realtime_priority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            subprocess.run(['sh', str(DIRECTORY / 'packaging/build-receiver-deb.sh'), temporary],
+                           check=True, stdout=subprocess.DEVNULL)
+            package = next(directory.glob('syren-rtp-receiver_*_all.deb'))
+            extracted = directory / 'extracted'
+            subprocess.run(['dpkg-deb', '-x', str(package), str(extracted)], check=True)
+            configuration = extracted / 'usr/lib/syren-rtp/templates/pulse.conf'
+            modules = json.loads(subprocess.check_output(
+                ['pw-config', '-n', str(configuration), '-r', '-N', 'merge', 'context.modules'], text=True))
+            realtime = [module for module in modules if module['name'] == 'libpipewire-module-rt']
+            self.assertEqual(len(realtime), 1, 'Packaged Pulse bridge must load the real time module')
+            priority = realtime[0]['args']['rt.prio']
+            self.assertEqual(priority, 82)
+            service = (extracted / 'usr/lib/systemd/system/syren-rtp-audio.service').read_text()
+            limit = next(int(line.split('=', 1)[1]) for line in service.splitlines()
+                         if line.startswith('LimitRTPRIO='))
+            self.assertLessEqual(priority, limit)
+
     def test_upgrade_preinst_reactivates_socket_for_legacy_drain(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
