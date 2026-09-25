@@ -33,6 +33,23 @@ ProcessResult response(Map<String, dynamic> value) =>
     ProcessResult(1, 0, jsonEncode(value), '');
 
 void main() {
+  test('large volume increase sends the final value in one command', () async {
+    final levels = <int>[];
+    final service = LocalAudioService(
+      available: true,
+      runner: (_, arguments) async {
+        final request = jsonDecode(arguments[1]) as Map<String, dynamic>;
+        levels.add(request['percent'] as int);
+        return response(status('playing', percent: levels.last));
+      },
+    );
+    addTearDown(service.dispose);
+    service.rtp = RtpStatus(status('playing', percent: 5));
+    await service.setPlaybackVolume(90);
+    expect(levels, [90]);
+    expect(service.rtp.percent, 90);
+  });
+
   test('lowering volume reaches the target in one confirmed command', () async {
     final levels = <int>[];
     final service = LocalAudioService(
@@ -327,7 +344,7 @@ void main() {
     );
     expect(find.text('Playing laptop audio'), findsOneWidget);
     expect(service.rtp.percent, 40);
-    expect(requests.where((action) => action == 'volume'), hasLength(3));
+    expect(requests.where((action) => action == 'volume'), hasLength(1));
     await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(requests.last, 'stop');
@@ -531,7 +548,7 @@ void main() {
     });
   }
 
-  testWidgets('slider target uses confirmed gain steps', (tester) async {
+  testWidgets('slider target uses one confirmed gain command', (tester) async {
     final levels = <int>[];
     final service = LocalAudioService(
       available: true,
@@ -546,7 +563,7 @@ void main() {
     );
     service.rtp = RtpStatus(status('playing'));
     await service.setPlaybackVolume(45);
-    expect(levels, [20, 30, 40, 45]);
+    expect(levels, [45]);
     expect(service.rtp.percent, 45);
     service.dispose();
   });

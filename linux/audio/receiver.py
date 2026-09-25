@@ -303,7 +303,7 @@ class Broker:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['broker', 'request', 'channel', 'priority', 'restore', 'worker-exit', 'drain'])
+    parser.add_argument('action', choices=['broker', 'request', 'channel', 'priority', 'control', 'restore', 'worker-exit', 'drain'])
     parser.add_argument('--payload', default='{}')
     arguments = parser.parse_args()
     if arguments.action == 'broker':
@@ -342,7 +342,8 @@ def main():
         try:
             for line in sys.stdin:
                 request = json.loads(line)
-                allowed = ('mute',) if arguments.action == 'priority' else ('heartbeat',)
+                allowed = {'priority': ('mute',), 'channel': ('heartbeat',),
+                           'control': ('volume', 'unmute', 'standby')}[arguments.action]
                 if request.get('action') not in allowed:
                     raise ValueError('Operation is not allowed on this channel')
                 response = exchange(SOCKET, request)

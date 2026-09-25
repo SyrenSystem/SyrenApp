@@ -165,8 +165,9 @@ class Pairing:
 
 
 class Channel:
-    def __init__(self, pairing, endpoint, priority=False):
-        self.process = subprocess.Popen(pairing.arguments(endpoint, [REMOTE, 'priority' if priority else 'channel']),
+    def __init__(self, pairing, endpoint, priority=False, control=False):
+        action = 'control' if control else 'priority' if priority else 'channel'
+        self.process = subprocess.Popen(pairing.arguments(endpoint, [REMOTE, action]),
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self.lock = threading.Lock()

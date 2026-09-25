@@ -146,7 +146,7 @@ SystemConfiguration configuration(
 );
 
 void main() {
-  testWidgets('a newer slider value stops an outdated local volume ramp', (
+  testWidgets('a newer slider value replaces an in flight local gain request', (
     tester,
   ) async {
     final commands = DelayedGroupCommands();
@@ -184,16 +184,19 @@ void main() {
     slider.onChangeStart!(10);
     slider.onChanged!(80);
     await tester.pump();
-    expect(levels, [20]);
+    expect(levels, [80]);
     slider.onChanged!(20);
     slider.onChangeEnd!(20);
     firstGain.complete(
-      playback.response(playback.status('playing', percent: 20)),
+      playback.response(playback.status('playing', percent: 80)),
     );
     await tester.pumpAndSettle();
-    expect(levels, [
-      20,
-    ], reason: 'The old 80 percent ramp must stop after its in flight step');
+    expect(
+      levels,
+      [80, 20],
+      reason:
+          'The latest target follows the in flight command without extra steps',
+    );
     expect(commands.requests.single.value, 20);
     commands.requests.single.completion.complete(
       const CommandResult(
@@ -602,7 +605,7 @@ void main() {
     expect(mute.value, isFalse);
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    expect(requests.where((action) => action == 'volume'), hasLength(3));
+    expect(requests.where((action) => action == 'volume'), hasLength(1));
     expect(requests.where((action) => action == 'unmute'), hasLength(1));
     expect(service.rtp.state, 'playing');
     expect(service.rtp.percent, 40);

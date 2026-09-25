@@ -179,12 +179,14 @@ class LocalAudioService extends ChangeNotifier {
       _resumePending = true;
       rtpError = null;
       try {
+        final volumeIntent = _volumeIntent + 1;
         await setPlaybackVolume(volume);
         if (!_priorityAllowsPlayback) {
           await standbyRtp(muted: muted);
           return;
         }
         if (intent != _playbackIntent ||
+            volumeIntent != _volumeIntent ||
             rtp.session != session ||
             rtp.generation != generation) {
           // A mute or recovery moved the receiver on, and its own handling decides whether to resume.
@@ -320,7 +322,7 @@ class LocalAudioService extends ChangeNotifier {
         return;
       }
       final current = rtp.percent!;
-      await setRtpVolume(target.clamp(0, (current + 10).clamp(0, 100)));
+      await setRtpVolume(target);
       if (intent == _volumeIntent && rtp.percent == current) {
         throw StateError('Speaker volume could not be confirmed.');
       }

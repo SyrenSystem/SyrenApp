@@ -166,10 +166,24 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(self.graphs[0].terminated)
         self.session.request(dict(self.request('status'), version=2))
 
-    def test_gain_steps_and_readback(self):
+    def test_full_range_gain_changes_preserve_mute_and_confirm_each_target(self):
         self.ready()
-        with self.assertRaises(ValueError):
-            self.session.request(self.request('volume', percent=80))
+        for muted in (True, False):
+            if not muted:
+                self.session.request(self.request('unmute'))
+            for percent in (90, 0, 100, 35):
+                with self.subTest(muted=muted, percent=percent):
+                    result = self.session.request(self.request('volume', percent=percent))
+                    self.assertEqual(result['percent'], percent)
+                    self.assertEqual(result['muted'], muted)
+                    self.assertEqual(self.graphs[0].volume, percent)
+                    self.assertEqual(self.graphs[0].muted, muted)
+
+    def test_gain_range_and_readback(self):
+        self.ready()
+        for percent in (-1, 101, True, 12.5):
+            with self.subTest(percent=percent), self.assertRaises(ValueError):
+                self.session.request(self.request('volume', percent=percent))
         self.session.request(self.request('volume', percent=20))
         self.assertEqual(self.session.gain, 20)
         self.assertTrue(self.session.muted)

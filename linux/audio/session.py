@@ -196,8 +196,6 @@ class Session:
                 percent = request.get('percent', self.gain)
                 if type(percent) is not int or not 0 <= percent <= 100:
                     raise ValueError('Gain must be an integer from 0 to 100')
-                if self.gain is None or percent - self.gain > 10:
-                    raise ValueError('Increase by at most 10 percentage points per explicit command')
                 muted = False if unmute else self.muted
                 cancel = self.control_cancel = threading.Event()
             try:

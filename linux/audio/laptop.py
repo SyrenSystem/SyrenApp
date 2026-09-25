@@ -79,6 +79,7 @@ class Controller:
         self.lifecycle = threading.Lock()
         self.stop_lock = threading.Lock()
         self.start_lock = threading.Lock()
+        self.control_lock = threading.Lock()
         self.cancel = threading.Event()
         self.exiting = threading.Event()
         self.state = 'recoveryPending' if JOURNAL.exists() else 'idle'
@@ -90,6 +91,7 @@ class Controller:
         self.receiver = {}
         self.channel = None
         self.priority = None
+        self.control = None
         self.guardian = None
         self.start_complete = False
         self.last_control = None
@@ -170,6 +172,7 @@ class Controller:
                     'snapclient_id': self.endpoint['snapclient_id'], 'latency': 20}, timeout=30)
                 self.channel = Channel(self.pairing, self.endpoint)
                 self.priority = Channel(self.pairing, self.endpoint, priority=True)
+                self.control = Channel(self.pairing, self.endpoint, control=True)
                 self.last_control = time.monotonic()
                 if self.mute_pending:
                     self.mute()
@@ -260,6 +263,9 @@ class Controller:
         if self.channel:
             self.channel.close()
             self.channel = None
+        if self.control:
+            self.control.close()
+            self.control = None
         with self.lifecycle:
             try:
                 cleanup(self.pairing, confirm=confirm)
@@ -396,16 +402,26 @@ class Controller:
         if action == 'mute':
             return self.mute()
         if action in ('volume', 'unmute', 'standby'):
-            if not self.start_complete or self.mute_pending or self.mute_uncertain or self.state in ('stopping', 'recoveryPending'):
-                raise ValueError('Wait for confirmed receiver readiness before adjusting playback')
-            if request.get('session') != self.session or request.get('generation') != self.receiver.get('generation'):
-                raise ValueError('Stale session or recovery generation; confirm again')
-            serial = self.mute_serial
-            response = self.pairing.request(self.endpoint, request)
-            if serial != self.mute_serial:
-                raise ValueError('Mute invalidated this gain request')
-            self.receiver = response
-            return self.status()
+            with self.control_lock:
+                if not self.start_complete or self.mute_pending or self.mute_uncertain or self.state in ('stopping', 'recoveryPending'):
+                    raise ValueError('Wait for confirmed receiver readiness before adjusting playback')
+                if request.get('session') != self.session or request.get('generation') != self.receiver.get('generation'):
+                    raise ValueError('Stale session or recovery generation; confirm again')
+                serial = self.mute_serial
+                if self.control is None:
+                    self.control = Channel(self.pairing, self.endpoint, control=True)
+                channel = self.control
+                try:
+                    response = channel.request(request, timeout=3)
+                except Exception:
+                    channel.close()
+                    if self.control is channel:
+                        self.control = None
+                    raise
+                if serial != self.mute_serial or channel is not self.control:
+                    raise ValueError('Mute invalidated this gain request')
+                self.receiver = response
+                return self.status()
         if action == 'start':
             with self.start_lock:
                 if self.state != 'idle' or JOURNAL.exists() or self.stop_lock.locked():

@@ -1,4 +1,5 @@
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -29,6 +30,53 @@ class LaptopTests(unittest.TestCase):
         patcher = patch.object(laptop, 'JOURNAL', laptop.ROOT / 'state.json')
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def test_volume_uses_persistent_control_instead_of_new_ssh(self):
+        controller = laptop.Controller()
+        self.addCleanup(controller.exiting.set)
+        controller.start_complete = True
+        controller.state = 'playing'
+        controller.session = 'abc'
+        controller.receiver = {'generation': 1}
+        controller.control = Mock()
+        controller.control.request.return_value = {'generation': 1, 'percent': 90}
+        controller.pairing = Mock()
+        request = {'version': 1, 'action': 'volume', 'session': 'abc', 'generation': 1, 'percent': 90}
+        controller.request(request)
+        controller.control.request.assert_called_once_with(request, timeout=3)
+        controller.pairing.request.assert_not_called()
+
+    def test_failed_control_request_closes_channel_without_replaying(self):
+        controller = laptop.Controller()
+        self.addCleanup(controller.exiting.set)
+        controller.start_complete = True
+        controller.state = 'playing'
+        controller.session = 'abc'
+        controller.receiver = {'generation': 1}
+        channel = controller.control = Mock()
+        channel.request.side_effect = TimeoutError('lost response')
+        controller.pairing = Mock()
+        with self.assertRaises(TimeoutError):
+            controller.request({'version': 1, 'action': 'volume', 'session': 'abc', 'generation': 1, 'percent': 90})
+        channel.close.assert_called_once()
+        self.assertIsNone(controller.control)
+        self.assertEqual(channel.request.call_count, 1)
+        controller.pairing.request.assert_not_called()
+
+    def test_control_channel_accepts_repeated_gain_requests_without_disconnect(self):
+        requests = [{'version': 1, 'action': 'volume', 'session': 'abc', 'generation': 1, 'percent': percent}
+                    for percent in (90, 5, 100)]
+        with patch('sys.argv', ['receiver.py', 'control']),                 patch('sys.stdin', io.StringIO(''.join(json.dumps(request) + '\n' for request in requests))),                 patch('sys.stdout', io.StringIO()) as output,                 patch.object(receiver, 'exchange', side_effect=lambda _, request: request) as exchange:
+            receiver.main()
+        self.assertEqual([json.loads(line) for line in output.getvalue().splitlines()], requests)
+        self.assertEqual(exchange.call_count, 3)
+
+    def test_control_channels_keep_operations_separate(self):
+        for channel, action in [('control', 'start'), ('control', 'mute'), ('channel', 'volume'), ('priority', 'volume')]:
+            with self.subTest(channel=channel, action=action),                     patch('sys.argv', ['receiver.py', channel]),                     patch('sys.stdin', io.StringIO(json.dumps({'action': action}) + '\n')),                     patch.object(receiver, 'exchange') as exchange:
+                with self.assertRaisesRegex(ValueError, 'not allowed'):
+                    receiver.main()
+                exchange.assert_not_called()
 
     def test_independent_local_cleanup_runs_when_receiver_is_unreachable(self):
         atomic_json(laptop.JOURNAL, {'session': 'abc', 'remote_start_intended': True, 'endpoint': {}})
