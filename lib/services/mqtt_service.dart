@@ -22,6 +22,40 @@ class MqttService {
   MqttService({String? clientId}) : clientId = clientId ?? _createClientId();
 
   final String clientId;
+  bool profileMode = false;
+  void Function(String, Map<String, dynamic>)? onProfileMessage;
+  bool Function(String, double)? onProfileDistance;
+  VoidCallback? onProfileReset;
+  final Map<String, Completer<Map<String, dynamic>>> _profileCommands = {};
+  // Legacy messages seen during profile playback, replayed if the server turns out to be version 2.
+  final Map<String, String> _heldLegacyMessages = {};
+
+  Future<Map<String, dynamic>> profileCommand(
+    Map<String, dynamic> fields,
+  ) async {
+    final requestId = _createRequestId();
+    final completion = Completer<Map<String, dynamic>>();
+    _profileCommands[requestId] = completion;
+    try {
+      if (!publish('SyrenSystem/v3/Command', {
+        ...fields,
+        'requestId': requestId,
+        'protocolVersion': 3,
+      })) {
+        throw StateError('Server is disconnected');
+      }
+      final result = await completion.future.timeout(
+        const Duration(seconds: 10),
+      );
+      if (result['success'] != true) {
+        throw StateError(result['error']?.toString() ?? 'Command was rejected');
+      }
+      return result;
+    } finally {
+      _profileCommands.remove(requestId);
+    }
+  }
+
   void Function(Map<String, dynamic>)? onUserPositionReceived;
   VoidCallback? onUserPositionCleared;
   void Function(String, Map<String, dynamic>)? onSpeakerPositionReceived;
@@ -117,6 +151,15 @@ class MqttService {
         debugPrint('MQTT message stream failed: $error');
       },
     );
+    for (final kind in const [
+      'Configuration',
+      'Catalogue',
+      'Receivers',
+      'SpotifyLinkStatus',
+      'Result/#',
+    ]) {
+      client.subscribe('SyrenSystem/v3/$kind', MqttQos.atLeastOnce);
+    }
     client.subscribe('${SyrenTopics.speakerPosition}/#', MqttQos.atLeastOnce);
     client.subscribe(SyrenTopics.userPosition, MqttQos.atMostOnce);
     client.subscribe(SyrenTopics.serverStatus, MqttQos.atLeastOnce);
@@ -136,6 +179,7 @@ class MqttService {
     Object message, {
     MqttQos qos = MqttQos.atLeastOnce,
   }) {
+    if (profileMode && !topic.startsWith('SyrenSystem/v3/')) return false;
     final client = _client;
     if (!_connected || client == null) {
       return false;
@@ -152,6 +196,7 @@ class MqttService {
   }
 
   bool sendDistance(String id, double distance) {
+    if (profileMode) return onProfileDistance?.call(id, distance) ?? false;
     if (id.trim().isEmpty || !distance.isFinite || distance < 0) {
       return false;
     }
@@ -248,6 +293,42 @@ class MqttService {
 
   @visibleForTesting
   void handleMessage(String topic, String payload) {
+    if (topic.startsWith('SyrenSystem/v3/')) {
+      final kind = topic.substring('SyrenSystem/v3/'.length);
+      final data = _decodeMap(payload);
+      if (data == null) {
+        // An empty retained configuration means profile playback was removed.
+        if (kind == 'Configuration' && payload.isEmpty) _leaveProfileMode();
+        return;
+      }
+      if (kind == 'Configuration' && data['protocolVersion'] == 3) {
+        profileMode = true;
+      }
+      if (kind.startsWith('Result/')) {
+        final pending = _profileCommands[data['requestId']];
+        if (pending != null && !pending.isCompleted) pending.complete(data);
+      }
+      onProfileMessage?.call(kind, data);
+      return;
+    }
+    if (topic == SyrenTopics.serverStatus) {
+      final status = _decodeMap(payload);
+      if (status != null) onProfileMessage?.call('ServerStatus', status);
+      if (profileMode && status != null && status['online'] != true) {
+        _failProfileCommands('Server is offline');
+      } else if (profileMode &&
+          status?['online'] == true &&
+          status?['protocolVersion'] != 3) {
+        _leaveProfileMode();
+      }
+    }
+    if (profileMode) {
+      // Server status is held too, so leaving profile mode replays the latest one.
+      if (!topic.startsWith('${SyrenTopics.commandResult}/')) {
+        _heldLegacyMessages[topic] = payload;
+      }
+      return;
+    }
     if (topic == SyrenTopics.userPosition && payload.isEmpty) {
       onUserPositionCleared?.call();
       return;
@@ -343,6 +424,22 @@ class MqttService {
     }
   }
 
+  void _leaveProfileMode() {
+    if (!profileMode) return;
+    profileMode = false;
+    _failProfileCommands('Profile playback is no longer available');
+    onProfileReset?.call();
+    final held = Map.of(_heldLegacyMessages);
+    _heldLegacyMessages.clear();
+    held.forEach(handleMessage);
+  }
+
+  void _failProfileCommands(String reason) {
+    for (final command in _profileCommands.values.toList()) {
+      if (!command.isCompleted) command.completeError(StateError(reason));
+    }
+  }
+
   Future<void> _disconnectCurrentClient() async {
     final client = _client;
     _client = null;
@@ -357,6 +454,9 @@ class MqttService {
       }
     }
     _pendingCommands.clear();
+    _heldLegacyMessages.clear();
+    _failProfileCommands('MQTT disconnected');
+    _leaveProfileMode();
     if (client != null) {
       client.autoReconnect = false;
       client.disconnect();

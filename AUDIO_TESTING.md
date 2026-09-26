@@ -23,6 +23,16 @@ The measurement tests also import NumPy and GStreamer's Python introspection bin
 
 The signal container sets `--ulimit rtprio=88:88`, matching the receiver service's `LimitRTPRIO=88`. This lets the private Pulse bridge load its real time module without a desktop RTKit service. The signal test requires that module to remain loaded; a container without either scheduling mechanism fails the check. See [PipeWire's real time module requirements](https://gitlab.freedesktop.org/pipewire/pipewire/-/blob/1.4.2/src/modules/module-rt.c).
 
+## Profile session coverage
+
+Version 3 additionally runs `smoke_sessions.py` with real Snapclient 0.35 Pulse inputs and a real Snapserver. It verifies independent streams, fresh standby audio, simultaneous tones, RTP as another input, confirmed mute and unchanged healthy processes. Control and digital silence limits remain 250 ms. Full local runs require Podman and the built `syren-snapserver-check` image. CI uses checksum pinned native Snapclient and Snapserver 0.35 binaries with `SYREN_SIGNAL_NATIVE=1`; the separate server image gate still tests the production patches.
+
+`smoke_pc_sender.py` runs the production PC capture process against a private PipeWire, Pulse and WirePlumber instance. Hardware discovery is disabled in that instance. It checks advancing silent capture, owner exit, owner heartbeat timeout, killed capture and desktop route restoration. Install WirePlumber 0.5 or later and Pulse utilities, including `parec`, for this check. The existing desktop sink must remain unchanged.
+
+The profile tests cover per person priority, pairwise overlap within and between people, three session conflicts, zero desired gain, stale positioning, standby reception, transport selection, coherent generations and ordered revisions. Server tests cover persisted claims, release policy, guest ownership changes and migration. App tests exercise selection ownership, remembered profiles, event routing, default levels and volume coalescing.
+
+Version 3 physical acceptance is tracked in `../SyrenDocs/ProfileSessionsDelivery.md`. The remaining sections describe the version 2 regression contract, which remains in the gate to protect the rollback path.
+
 ## Required behavior
 
 The group's ordered source list selects the programme. Low latency changes the laptop transport only. When Spotify is first and playing, enabling low latency must not steal priority. When Spotify pauses or fails and laptop audio remains active, laptop playback should return through RTP if connected, otherwise through Snapcast. A muted group stays silent through all handoffs. When every source is idle and laptop audio is included in the group priority, enabled RTP stays selected between sounds. Pausing and resuming laptop audio must not issue a branch switch or wait for an activity poll in this state.

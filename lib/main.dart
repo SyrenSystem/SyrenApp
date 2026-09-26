@@ -1,4 +1,5 @@
 import 'package:final_project/ui/app_feedback.dart';
+import 'package:final_project/ui/profile_playback_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
@@ -87,6 +88,14 @@ class _MainPageState extends ConsumerState<MainPage> {
 
   @override
   Widget build(BuildContext context) {
+    final profiles = ref.watch(profileSessionProvider);
+    ref.watch(mqttConnectionProvider);
+    if (profiles.configuration != null) {
+      return ProfilePlaybackPage(
+        controller: profiles,
+        onMeasurement: _startMeasurement,
+      );
+    }
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
     ref.watch(localAudioServiceProvider);
     ref.watch(groupAudioCoordinatorProvider);

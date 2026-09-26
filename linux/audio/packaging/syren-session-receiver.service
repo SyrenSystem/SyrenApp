@@ -1,0 +1,35 @@
+[Unit]
+Description=Syren profile session receiver
+After=network-online.target
+Wants=network-online.target
+Conflicts=snapclient.service syren-rtp-audio.service syren-rtp-broker.service syren-rtp-broker.socket
+ConditionPathExists=/etc/syrensystem/profile-sessions.active
+
+[Service]
+User=syren-rtp
+Group=syren-rtp
+SupplementaryGroups=audio
+ExecStart=/usr/bin/python3 /usr/lib/syren-sessions/session_receiver.py
+RuntimeDirectory=syren-sessions
+RuntimeDirectoryMode=0700
+StateDirectory=syren-sessions
+StateDirectoryMode=0700
+TimeoutStopSec=3
+KillMode=control-group
+Restart=on-failure
+RestartSec=1
+LimitRTPRIO=88
+LimitNICE=31
+LimitMEMLOCK=268435456
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+DevicePolicy=closed
+DeviceAllow=char-alsa rw
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

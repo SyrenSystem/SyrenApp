@@ -14,7 +14,7 @@ done
 chmod 755 "$package_root/usr/lib/syren-rtp/receiver.py"
 install -m 644 "$source_directory/compatibility.json" "$package_root/usr/lib/syren-rtp/compatibility.json"
 install -m 644 "$source_directory"/templates/receiver.conf.in "$source_directory"/templates/shared-receiver.conf.in "$source_directory"/templates/pulse.conf "$package_root/usr/lib/syren-rtp/templates/"
-install -m 644 "$source_directory"/packaging/*.service "$source_directory"/packaging/*.socket "$package_root/usr/lib/systemd/system/"
+install -m 644 "$source_directory"/packaging/syren-rtp-audio.service "$source_directory"/packaging/syren-rtp-broker.service "$source_directory"/packaging/*.socket "$package_root/usr/lib/systemd/system/"
 install -m 755 "$source_directory/packaging/configure-receiver.py" "$package_root/usr/sbin/syren-rtp-configure"
 install -m 755 "$source_directory/packaging/receiver-maintenance" "$package_root/usr/lib/syren-rtp/maintenance"
 for action in preinst postinst prerm postrm; do

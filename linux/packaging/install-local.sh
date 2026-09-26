@@ -67,7 +67,7 @@ fi
 systemctl --user daemon-reload
 
 missing_audio_commands=""
-for required_command in pactl pw-record nc; do
+for required_command in pactl parec pw-record nc; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     missing_audio_commands="$missing_audio_commands $required_command"
   fi

@@ -36,10 +36,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Install isolated audio tools
-        run: apt-get update && apt-get install -y git ca-certificates python3 pipewire pipewire-pulse pipewire-bin pulseaudio-utils dbus
+        run: apt-get update && apt-get install -y git ca-certificates python3 pipewire pipewire-pulse pipewire-bin pulseaudio-utils dbus curl wireplumber
+      - name: Install pinned native Snapcast tools
+        run: |
+          curl -fL -o /tmp/snapclient.deb https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapclient_0.35.0-1_amd64_trixie_with-pulse.deb
+          curl -fL -o /tmp/snapserver.deb https://github.com/snapcast/snapcast/releases/download/v0.35.0/snapserver_0.35.0-1_amd64_trixie.deb
+          echo '862daa14b89275ed88d5bd5469f62392782b62ccd6ee32512425de0597a9561a  /tmp/snapclient.deb' | sha256sum --check
+          echo '6a82325cf9eae68b75fb062491639cb31ec58288fe8930f53e86689e22a095da  /tmp/snapserver.deb' | sha256sum --check
+          apt-get install -y /tmp/snapclient.deb /tmp/snapserver.deb
       - uses: actions/checkout@v4
       - name: Measure source isolation and handoff continuity
         run: dbus-run-session -- sh scripts/isolated_audio_gate.sh
+        env:
+          SYREN_SIGNAL_NATIVE: "1"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

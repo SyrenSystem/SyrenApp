@@ -38,6 +38,8 @@ def main():
         commands.append(('server', server, command))
     if arguments.scope in ('signal', 'all'):
         commands.append(('signal', application, ['python3', 'linux/audio/tests/smoke_shared.py']))
+        commands.append(('sessions-signal', application, ['python3', 'linux/audio/tests/smoke_sessions.py']))
+        commands.append(('pc-signal', application, ['python3', 'linux/audio/tests/smoke_pc_sender.py']))
     results = []
     for name, directory, command in commands:
         print(f'Running {name} gate', flush=True)

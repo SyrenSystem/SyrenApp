@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:final_project/services/profile_session_controller.dart';
 import 'package:final_project/services/group_audio_coordinator.dart';
 import 'package:final_project/services/volume_change_queue.dart';
 
@@ -121,11 +122,10 @@ final serialServiceProvider = Provider<SerialService>((ref) {
   return service;
 });
 
-final localAudioServiceProvider = ChangeNotifierProvider<LocalAudioService>((
-  ref,
-) {
-  return LocalAudioService()..attachApp();
-});
+final localAudioServiceProvider =
+    ChangeNotifierProvider.autoDispose<LocalAudioService>((ref) {
+      return LocalAudioService()..attachApp();
+    });
 
 final localAudioEnabledProvider = FutureProvider<bool?>((ref) {
   return ref.read(localAudioServiceProvider).status();
@@ -139,21 +139,35 @@ final speakerNameMigrationProvider = Provider<SpeakerNameMigration>((ref) {
   );
 });
 
-final groupAudioCoordinatorProvider = Provider<GroupAudioCoordinator>((ref) {
-  final coordinator = GroupAudioCoordinator(
-    audio: ref.read(localAudioServiceProvider),
-    configuration: () => ref.read(systemConfigurationProvider),
-    runtime: () => ref.read(systemRuntimeProvider),
-    online: () =>
-        ref.read(serverOnlineProvider) &&
-        ref.read(mqttServiceProvider).isConnected,
-  );
-  ref.listen(
-    systemConfigurationProvider,
-    (_, _) => unawaited(coordinator.refresh()),
-  );
-  ref.listen(systemRuntimeProvider, (_, _) => unawaited(coordinator.refresh()));
-  ref.onDispose(coordinator.dispose);
-  coordinator.start();
-  return coordinator;
-});
+final groupAudioCoordinatorProvider =
+    Provider.autoDispose<GroupAudioCoordinator>((ref) {
+      final coordinator = GroupAudioCoordinator(
+        audio: ref.read(localAudioServiceProvider),
+        configuration: () => ref.read(systemConfigurationProvider),
+        runtime: () => ref.read(systemRuntimeProvider),
+        online: () =>
+            ref.read(serverOnlineProvider) &&
+            ref.read(mqttServiceProvider).isConnected &&
+            !ref.read(mqttServiceProvider).profileMode,
+      );
+      ref.listen(
+        systemConfigurationProvider,
+        (_, _) => unawaited(coordinator.refresh()),
+      );
+      ref.listen(
+        systemRuntimeProvider,
+        (_, _) => unawaited(coordinator.refresh()),
+      );
+      ref.onDispose(coordinator.dispose);
+      coordinator.start();
+      return coordinator;
+    });
+
+final profileSessionProvider = ChangeNotifierProvider<ProfileSessionController>(
+  (ref) {
+    return ProfileSessionController(
+      ref.read(mqttServiceProvider),
+      Hive.box<String>('syren_metadata'),
+    );
+  },
+);
