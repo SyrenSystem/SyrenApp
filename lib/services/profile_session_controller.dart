@@ -310,15 +310,8 @@ class ProfileSessionController extends ChangeNotifier {
     if (!Platform.isLinux || selected == null || pcSessionId != null) return;
     String? senderAddress;
     if (receiverAddress != null) {
-      final route = await Process.run('ip', [
-        '-j',
-        'route',
-        'get',
-        receiverAddress,
-      ]);
-      senderAddress =
-          (jsonDecode(route.stdout as String) as List).first['prefsrc']
-              as String;
+      receiverAddress = await speakerAddress(receiverAddress);
+      senderAddress = await _localAddressFor(receiverAddress);
     }
     final response = await command('pc', {
       'profileId': selectedId,
@@ -373,6 +366,53 @@ class ProfileSessionController extends ChangeNotifier {
       rethrow;
     }
     notifyListeners();
+  }
+
+  // Accepts an IPv4 address or a name that resolves to one.
+  @visibleForTesting
+  static Future<String> speakerAddress(String text) async {
+    final parsed = InternetAddress.tryParse(text);
+    if (parsed != null) {
+      if (parsed.type == InternetAddressType.IPv4) return parsed.address;
+    } else if (text.isNotEmpty) {
+      try {
+        final found = await InternetAddress.lookup(
+          text,
+          type: InternetAddressType.IPv4,
+        );
+        if (found.isNotEmpty) return found.first.address;
+      } on SocketException {
+        // The message below covers names that do not resolve.
+      }
+    }
+    throw StateError("Enter the low latency speaker's IPv4 address");
+  }
+
+  // Finds the address this computer uses to reach the speaker.
+  static Future<String> _localAddressFor(String receiverAddress) async {
+    final route = await Process.run('ip', [
+      '-j',
+      'route',
+      'get',
+      receiverAddress,
+    ]);
+    Object? routes;
+    if (route.exitCode == 0) {
+      try {
+        routes = jsonDecode(route.stdout as String);
+      } on FormatException {
+        routes = null;
+      }
+    }
+    final source = routes is List && routes.isNotEmpty
+        ? (routes.first as Map)['prefsrc']
+        : null;
+    if (source is! String) {
+      throw StateError(
+        'This computer has no network route to $receiverAddress',
+      );
+    }
+    return source;
   }
 
   @visibleForTesting

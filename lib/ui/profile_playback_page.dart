@@ -681,14 +681,18 @@ class _ProfilePlaybackPageState extends State<ProfilePlaybackPage> {
                     DropdownButton<String>(
                       value: lowLatencySpeaker,
                       hint: const Text('Optional low latency speaker'),
-                      items: (configuration['speakers'] as List)
-                          .map(
-                            (speaker) => DropdownMenuItem(
-                              value: speaker['id'] as String,
-                              child: Text(speaker['name'] as String),
-                            ),
-                          )
-                          .toList(),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('No low latency speaker'),
+                        ),
+                        ...(configuration['speakers'] as List).map(
+                          (speaker) => DropdownMenuItem(
+                            value: speaker['id'] as String,
+                            child: Text(speaker['name'] as String),
+                          ),
+                        ),
+                      ],
                       onChanged: controller.pcSessionId != null
                           ? null
                           : (value) =>
@@ -698,7 +702,7 @@ class _ProfilePlaybackPageState extends State<ProfilePlaybackPage> {
                       TextField(
                         controller: receiverAddress,
                         decoration: const InputDecoration(
-                          labelText: 'Speaker IPv4 address',
+                          labelText: 'Speaker IPv4 address or name',
                         ),
                       ),
                     FilledButton(

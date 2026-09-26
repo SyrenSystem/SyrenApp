@@ -296,6 +296,42 @@ void main() {
     );
   });
 
+  test('a low latency speaker needs an IPv4 address or a name', () async {
+    expect(
+      await ProfileSessionController.speakerAddress('192.168.2.61'),
+      '192.168.2.61',
+    );
+    expect(
+      await ProfileSessionController.speakerAddress('localhost'),
+      '127.0.0.1',
+    );
+    for (final invalid in ['', '::1']) {
+      await expectLater(
+        ProfileSessionController.speakerAddress(invalid),
+        throwsA(isA<StateError>()),
+      );
+    }
+  });
+
+  test('a missing speaker address fails before the PC command', () async {
+    await controller.select('first');
+    await expectLater(
+      controller.startPc('house', speakerId: 'speaker-a', receiverAddress: ''),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('IPv4 address'),
+        ),
+      ),
+    );
+    expect(
+      mqtt.commands.where((command) => command['action'] == 'pc'),
+      isEmpty,
+    );
+    expect(controller.pcSessionId, isNull);
+  });
+
   test('PC heartbeats repeat the latest lifecycle sequence', () {
     controller.pcSessionId = 'pc';
     controller.receive('Configuration', {
