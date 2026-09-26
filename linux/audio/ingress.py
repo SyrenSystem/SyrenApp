@@ -8,6 +8,12 @@ import threading
 import time
 
 
+# Seconds of steady packets before a session speaker trusts RTP again.
+RECOVERY_SECONDS = 3
+# Seconds without packets before a session speaker stops trusting RTP.
+OUTAGE_SECONDS = 0.5
+
+
 class PacketFilter:
     def __init__(self, sender_address, startup_deadline, clock=time.monotonic):
         self.sender_address = str(ipaddress.IPv4Address(sender_address))
@@ -22,6 +28,7 @@ class PacketFilter:
         self.accepted = 0
         self.rejected = Counter()
         self.identity_changed = False
+        self.trusted = False
 
     def accept(self, packet, address):
         now = self.clock()
@@ -62,11 +69,22 @@ class PacketFilter:
     def reset_reception(self):
         self.stable_since = None
         self.last_received = None
+        self.trusted = False
 
     def stable(self):
         now = self.clock()
         return (self.stable_since is not None and self.last_received is not None
                 and now - self.stable_since >= 1 and now - self.last_received <= 0.1)
+
+    def usable(self):
+        # Short Wi-Fi gaps keep RTP in use, so a speaker does not jump between RTP and the delayed Snapcast copy.
+        now = self.clock()
+        if self.last_received is None or now - self.last_received > OUTAGE_SECONDS:
+            self.trusted = False
+        elif not self.trusted and self.stable_since is not None and (
+                now - self.stable_since >= RECOVERY_SECONDS and now - self.last_received <= 0.1):
+            self.trusted = True
+        return self.trusted
 
     def status(self):
         return {'accepted': self.accepted, 'rejected': dict(self.rejected),

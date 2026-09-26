@@ -4,6 +4,7 @@
 import json
 import os
 import queue
+import resource
 import selectors
 import signal
 import socket
@@ -13,6 +14,27 @@ import sys
 import threading
 import time
 from urllib.parse import urlparse
+
+
+# The capture and send path runs just below the 88 PipeWire uses, when this user is allowed real time.
+PRIORITY = 86
+
+
+def realtime_priority():
+    limit = resource.getrlimit(resource.RLIMIT_RTPRIO)[0]
+    if os.geteuid() == 0 or limit == resource.RLIM_INFINITY:
+        return PRIORITY
+    return min(PRIORITY, limit) if limit > 0 else None
+
+
+def make_realtime():
+    priority = realtime_priority()
+    if priority:
+        try:
+            # On Linux this changes only the calling thread.
+            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(priority))
+        except OSError:
+            pass
 
 
 def pulse(*arguments):
@@ -43,6 +65,7 @@ def main():
     capture = None
 
     def transmit_tcp():
+        make_realtime()
         while not stopping.is_set():
             try:
                 with socket.create_connection((configuration['host'], tcp['tcpPort']), timeout=.5) as connection:
@@ -66,9 +89,13 @@ def main():
         pulse('set-default-sink', sink)
         for item in json.loads(pulse('-f', 'json', 'list', 'sink-inputs')):
             pulse('move-sink-input', str(item['index']), sink)
-        capture = subprocess.Popen(['parec', '--raw', '--format=s16le', '--rate=48000', '--channels=2',
-                                    '--latency-msec=5', '--process-time-msec=2', '--device=' + sink + '.monitor'],
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        command = ['parec', '--raw', '--format=s16le', '--rate=48000', '--channels=2',
+                   '--latency-msec=5', '--process-time-msec=2', '--device=' + sink + '.monitor']
+        priority = realtime_priority()
+        if priority:
+            command = ['chrt', '--fifo', str(priority), *command]
+        capture = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        make_realtime()
         threading.Thread(target=transmit_tcp, daemon=True).start()
         selector = selectors.DefaultSelector()
         selector.register(sys.stdin, selectors.EVENT_READ, 'owner')

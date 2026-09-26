@@ -224,6 +224,23 @@ class SessionReceiverTests(unittest.TestCase):
         self.assertEqual('RuntimeError', control.failure)
 
 
+class RealtimeTests(unittest.TestCase):
+    def test_priorities_follow_the_service_limit(self):
+        import session_graph
+        with patch('session_graph.os.geteuid', return_value=1000), \
+                patch('session_graph.resource.getrlimit', return_value=(88, 88)):
+            self.assertEqual(['chrt', '--fifo', '86', 'snapclient'], session_graph.realtime_command(['snapclient'], 86))
+            self.assertEqual(88, session_graph.realtime_priority(95))
+        with patch('session_graph.os.geteuid', return_value=1000), \
+                patch('session_graph.resource.getrlimit', return_value=(0, 0)):
+            self.assertEqual(['snapclient'], session_graph.realtime_command(['snapclient'], 86))
+
+    def test_configuration_priority_is_set_once(self):
+        from session_graph import with_priority
+        self.assertEqual('    args = {\n        rt.prio = 87\n', with_priority('    args = {\n        #rt.prio      = 83\n', 87))
+        self.assertEqual('args = { rt.prio = 87 }', with_priority('args = { rt.prio = 82 }', 87))
+
+
 class FakeGraph:
     def __init__(self, failures=(), healthy=True):
         self.item = {'sessionId': 'old', 'transportId': 'stream', 'clientId': 'client',

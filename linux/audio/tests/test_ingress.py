@@ -57,6 +57,27 @@ class IngressTests(unittest.TestCase):
         self.filter.accept(packet(501), self.address)
         self.assertFalse(self.filter.stable())
 
+    def test_short_gaps_keep_rtp_usable_until_a_real_outage(self):
+        def receive(start, count):
+            for index in range(count):
+                self.now = start + index * 0.0025
+                self.filter.accept(packet(self.sequence), self.address)
+                self.sequence += 1
+        self.sequence = 1
+        receive(0, 800)
+        self.assertFalse(self.filter.usable())
+        receive(self.now + 0.0025, 500)
+        self.assertTrue(self.filter.usable())
+        self.now += 0.3
+        self.assertTrue(self.filter.usable())
+        receive(self.now, 10)
+        self.assertTrue(self.filter.usable())
+        self.assertFalse(self.filter.stable())
+        self.now += 0.6
+        self.assertFalse(self.filter.usable())
+        receive(self.now, 800)
+        self.assertFalse(self.filter.usable())
+
     def test_startup_latch_expires(self):
         self.now = 61
         self.assertFalse(self.filter.accept(packet(), self.address))

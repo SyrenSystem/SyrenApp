@@ -3,6 +3,9 @@
 import hashlib
 import json
 import math
+import os
+import re
+import resource
 import subprocess
 import threading
 import time
@@ -13,6 +16,42 @@ from ingress import Ingress, PacketFilter
 from session_control import PipeWireControl
 
 from graph import AudioGraph, INSTALL
+
+
+# Real time priorities for the playback path, highest at the hardware output; the service allows up to 88.
+OUTPUT_PRIORITY = 88
+BRIDGE_PRIORITY = 87
+INPUT_PRIORITY = 86
+
+
+def realtime_priority(wanted):
+    # Returns the highest allowed priority up to the wanted one, or None when real time is not allowed.
+    if os.geteuid() == 0:
+        return wanted
+    limit = resource.getrlimit(resource.RLIMIT_RTPRIO)[0]
+    if limit == resource.RLIM_INFINITY:
+        return wanted
+    return min(wanted, limit) if limit > 0 else None
+
+
+def realtime_command(command, wanted):
+    priority = realtime_priority(wanted)
+    return ['chrt', '--fifo', str(priority), *command] if priority else command
+
+
+def run_realtime(target, wanted):
+    priority = realtime_priority(wanted)
+    if priority:
+        try:
+            # On Linux this changes only the calling thread.
+            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(priority))
+        except OSError:
+            pass
+    target()
+
+
+def with_priority(configuration, priority):
+    return re.sub(r'#?rt\.prio\s*=\s*\d+', f'rt.prio = {priority}', configuration, count=1)
 
 
 def snapclient_identity(physical_id, transport_id):
@@ -39,6 +78,10 @@ class SessionOutputGraph(AudioGraph):
         return process
 
     def start(self):
+        # Clients such as the RTP source read this copy, so their data loops run just below the output.
+        client_configuration = self.directory / 'client.conf'
+        if client_configuration.exists():
+            client_configuration.write_text(with_priority(client_configuration.read_text(), BRIDGE_PRIORITY))
         for period in (128, 256):
             configuration = (INSTALL / 'templates/session-output.conf.in').read_text()
             configuration = configuration.replace('@DEVICE@', self.device).replace('@PERIOD@', str(period))
@@ -69,8 +112,8 @@ class SessionOutputGraph(AudioGraph):
                 if period == 256:
                     raise
         pulse_configuration = self.directory / 'pulse.conf'
-        pulse_configuration.write_text((INSTALL / 'templates/pulse.conf').read_text().replace(
-            '    node.name = syren_snapclient\n', ''))
+        pulse_configuration.write_text(with_priority((INSTALL / 'templates/pulse.conf').read_text().replace(
+            '    node.name = syren_snapclient\n', ''), BRIDGE_PRIORITY))
         self.pulse = self.spawn(['pipewire', '-c', str(pulse_configuration)])
         deadline = time.monotonic() + 3
         while not (self.directory / 'pulse/native').exists():
@@ -99,9 +142,10 @@ class SessionOutputGraph(AudioGraph):
             process = None
             try:
                 self.create_stage(node_name)
-                process = self.spawn(['snapclient', '--host', self.snapcast_host, '--port', str(self.snapcast_port),
-                                      '--hostID', client_id, '--player', 'pulse', '--soundcard', node_name,
-                                      '--mixer', 'software', '--sampleformat', '48000:16:*', '--logsink', 'stdout'], environment)
+                process = self.spawn(realtime_command(
+                    ['snapclient', '--host', self.snapcast_host, '--port', str(self.snapcast_port),
+                     '--hostID', client_id, '--player', 'pulse', '--soundcard', node_name,
+                     '--mixer', 'software', '--sampleformat', '48000:16:*', '--logsink', 'stdout'], INPUT_PRIORITY), environment)
             except Exception:
                 self.discard(node_name, process)
                 raise
@@ -165,7 +209,7 @@ class SessionOutputGraph(AudioGraph):
             except Exception:
                 self.discard(node_name, process, ingress)
                 raise
-            threading.Thread(target=ingress.run, daemon=True).start()
+            threading.Thread(target=run_realtime, args=(ingress.run, INPUT_PRIORITY), daemon=True).start()
             self.inputs[identity] = {'sessionId': session_id, 'transportId': identity, 'clientId': None,
                                      'endpoint': transport['endpoint'], 'node': node_name, 'sourceNode': source_name,
                                      'process': process, 'ingress': ingress, 'gain': 0.0, 'muted': True, 'receiving': False}
@@ -229,7 +273,7 @@ class SessionOutputGraph(AudioGraph):
                                 except subprocess.CalledProcessError:
                                     continue
                             connected.add(channel)
-                item['receiving'] = len(connected) == 2 and ('ingress' not in item or item['ingress'].filter.stable())
+                item['receiving'] = len(connected) == 2 and ('ingress' not in item or item['ingress'].filter.usable())
                 if item['receiving']:
                     item['missingSince'] = None
                 elif item.get('missingSince') is None:
