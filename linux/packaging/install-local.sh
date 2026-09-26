@@ -104,4 +104,4 @@ LIMITS
   sudo systemctl daemon-reload || true
   printf '%s\n' 'Log out and in again, or reboot, before enabling PC audio so it runs at real time priority.' >&2
 fi
-printf 'Real time priority available to new apps: %s\n' "$(sed -n 's/^Max realtime priority *\([0-9a-z]*\).*/\1/p' /proc/self/limits)"
+printf 'Real time priority limit for this login: %s\n' "$(systemctl show "user@$(id -u).service" -p LimitRTPRIO --value)"
