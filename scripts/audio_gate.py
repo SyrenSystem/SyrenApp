@@ -37,6 +37,7 @@ def main():
                        '-w', '/workspace', 'mcr.microsoft.com/dotnet/sdk:10.0', *command]
         commands.append(('server', server, command))
     if arguments.scope in ('signal', 'all'):
+        commands.append(('ingress-signal', application, ['python3', 'linux/audio/tests/smoke_ingress.py']))
         commands.append(('signal', application, ['python3', 'linux/audio/tests/smoke_shared.py']))
         commands.append(('sessions-signal', application, ['python3', 'linux/audio/tests/smoke_sessions.py']))
         commands.append(('pc-signal', application, ['python3', 'linux/audio/tests/smoke_pc_sender.py']))

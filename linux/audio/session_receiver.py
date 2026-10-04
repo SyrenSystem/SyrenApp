@@ -13,7 +13,7 @@ import uuid
 
 from common import atomic_json
 from session_graph import SessionOutputGraph
-from session_selection import OrderedPlaybackState, select_sessions, select_transport
+from session_selection import OrderedPlaybackState, select_sessions, select_transports
 
 
 PREFIX = 'SyrenSystem/v3/'
@@ -86,7 +86,10 @@ class SessionReceiver:
                     health[transport['id']] = False
                     known.append(False)
                 elif transport['kind'] == 'rtp':
-                    healthy = inputs.get(transport['id'], {}).get('receiving', False)
+                    item = inputs.get(transport['id'], {})
+                    healthy = item.get('receiving', False)
+                    if session.get('pcMode') != 'fast':
+                        healthy = healthy and item.get('trusted', healthy)
                     health[transport['id']] = healthy
                     if transport.get('speakerId') == speaker_id and transport['id'] in inputs:
                         known.append(healthy)
@@ -108,6 +111,7 @@ class SessionReceiver:
         for session_id in result.receiving:
             session = by_identity[session_id]
             for transport in session['transports']:
+                transport = dict(transport, pcMode=session.get('pcMode') or 'auto')
                 if transport['kind'] == 'snapcast' and transport.get('available'):
                     self.ensure(transport, now, lambda: self.graph.ensure_snapcast(
                         session_id, transport, expect_audio=session['state'] == 'playing'))
@@ -115,8 +119,7 @@ class SessionReceiver:
                     self.ensure(transport, now, lambda: self.graph.ensure_rtp(session_id, transport))
         gains_by_transport = {}
         for session_id in result.selected:
-            transport = select_transport(by_identity[session_id], speaker_id, health)
-            if transport:
+            for transport in select_transports(by_identity[session_id], speaker_id, health):
                 item = inputs.get(transport['id'])
                 if item and health.get(transport['id']):
                     gains_by_transport[transport['id']] = result.gains[session_id]
@@ -157,7 +160,7 @@ class SessionReceiver:
             'protocolVersion': 3, 'generation': self.state.generation,
             'speakerId': self.configuration['speaker_id'], 'physicalClientId': self.configuration['physical_id'],
             'instanceId': self.instance, 'bootSequence': self.configuration['boot_sequence'], 'ready': self.error is None,
-            'capabilities': ['sessions', 'mixing', 'snapcast', 'rtp'],
+            'capabilities': ['sessions', 'mixing', 'snapcast', 'rtp', 'pc-outputs'],
             'selected': list(self.selected),
             'receiving': sorted({item['sessionId'] for item in inputs if item['receiving']}),
             'audible': sorted({item['sessionId'] for item in inputs if item['receiving'] and not item['muted'] and item['gain'] > 0}),

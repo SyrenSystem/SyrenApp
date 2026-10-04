@@ -1,5 +1,7 @@
 import 'package:final_project/ui/app_feedback.dart';
-import 'package:final_project/ui/profile_playback_page.dart';
+import 'package:final_project/ui/connect_page.dart';
+import 'package:final_project/ui/profile/profile_shell.dart';
+import 'package:final_project/ui/syren_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:final_project/ui/location_view_page.dart';
@@ -24,22 +26,34 @@ void main() async {
   runApp(const ProviderScope(child: MyApp()));
 }
 
-class MyApp extends StatelessWidget {
+final _syrenTheme = syrenTheme();
+
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Only a version two server still gets the older dark screens.
+    final legacy =
+        ref.watch(
+          profileSessionProvider.select(
+            (controller) => controller.configuration == null,
+          ),
+        ) &&
+        ref.watch(systemConfigurationProvider) != null;
     return MaterialApp(
       title: 'SyrenSystem',
-      theme: ThemeData.dark().copyWith(
-        snackBarTheme: const SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-        ),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFd4af37),
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: legacy
+          ? ThemeData.dark().copyWith(
+              snackBarTheme: const SnackBarThemeData(
+                behavior: SnackBarBehavior.floating,
+              ),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFFd4af37),
+                brightness: Brightness.dark,
+              ),
+            )
+          : _syrenTheme,
       home: const MainPage(),
       debugShowCheckedModeBanner: false,
     );
@@ -91,10 +105,17 @@ class _MainPageState extends ConsumerState<MainPage> {
     final profiles = ref.watch(profileSessionProvider);
     ref.watch(mqttConnectionProvider);
     if (profiles.configuration != null) {
-      return ProfilePlaybackPage(
+      return ProfileShell(
         controller: profiles,
-        onMeasurement: _startMeasurement,
+        positioning: PositioningControls(
+          isMeasuring: () =>
+              ref.read(measurementControllerProvider).isConnected,
+          toggle: _startMeasurement,
+        ),
       );
+    }
+    if (ref.watch(systemConfigurationProvider) == null) {
+      return const ConnectPage();
     }
     final selectedNavIndex = ref.watch(selectedNavIndexProvider);
     ref.watch(localAudioServiceProvider);

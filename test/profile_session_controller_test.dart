@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:final_project/ui/profile_playback_page.dart';
+import 'package:final_project/ui/profile/me_tab.dart';
+import 'package:final_project/ui/profile/profile_shell.dart';
+import 'package:final_project/ui/profile/syren_widgets.dart';
+import 'package:final_project/ui/syren_theme.dart';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:final_project/models/server_status.dart';
 import 'package:final_project/services/mqtt_service.dart';
@@ -20,7 +24,7 @@ void main() {
   setUp(() async {
     directory = Directory.systemTemp.createTempSync('syren_profiles_');
     Hive.init(directory.path);
-    storage = await Hive.openBox<String>('profiles');
+    storage = await Hive.openBox<String>('profiles', bytes: Uint8List(0));
     mqtt = ProfileMqtt();
     controller = ProfileSessionController(mqtt, storage);
     controller.receive('Configuration', mqtt.configuration);
@@ -46,6 +50,46 @@ void main() {
     expect(controller.pcOwner, isNull);
   });
 
+  test('PC output choices are remembered and default to automatic', () async {
+    expect(controller.preferredPcMode, 'auto');
+    await controller.setPcMode('stable');
+    await controller.rememberPcSpeaker('xps');
+    final reopened = ProfileSessionController(ProfileMqtt(), storage);
+    expect(reopened.preferredPcMode, 'stable');
+    expect(reopened.preferredPcSpeaker, 'xps');
+    reopened.dispose();
+    await controller.setPcMode('fast');
+    expect(controller.preferredPcMode, 'fast');
+    await controller.rememberPcSpeaker(null);
+    expect(controller.preferredPcSpeaker, isNull);
+    await storage.put('pcMode', 'invalid');
+    expect(controller.preferredPcMode, 'auto');
+  });
+
+  test('desktop output changes update the remembered mode while playing', () {
+    controller.pcSessionId = 'pc';
+    controller.receivePcCaptureStatus({
+      'mode': 'stable',
+      'activeModes': ['stable'],
+      'realtimePriority': 86,
+    });
+    expect(controller.preferredPcMode, 'stable');
+    expect(controller.pcTransportDescription('stable'), 'Snapcast only');
+    controller.pcSessionId = null;
+    controller.receivePcCaptureStatus({'mode': 'fast'});
+    expect(controller.preferredPcMode, 'stable');
+  });
+
+  test('Fast requires a speaker before creating the session', () async {
+    controller.selectedId = 'first';
+    await controller.setPcMode('fast');
+    await expectLater(controller.startPc('house'), throwsStateError);
+    expect(
+      mqtt.commands.where((command) => command['action'] == 'pc'),
+      isEmpty,
+    );
+  });
+
   test('volume edits keep only the newest pending value', () async {
     mqtt.configuration['groups'] = [
       {'id': 'room', 'sourceLevels': <String, dynamic>{}, 'masterVolume': 50},
@@ -68,6 +112,17 @@ void main() {
     );
   });
 
+  Widget shell() => MaterialApp(
+    theme: syrenTheme(),
+    home: ProfileShell(
+      controller: controller,
+      positioning: PositioningControls(
+        isMeasuring: () => false,
+        toggle: () async {},
+      ),
+    ),
+  );
+
   testWidgets('empty source levels use defaults on the profile page', (
     tester,
   ) async {
@@ -85,13 +140,13 @@ void main() {
       },
     ];
     controller.selectedId = 'first';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ProfilePlaybackPage(controller: controller, onMeasurement: () {}),
-      ),
-    );
+    await tester.pumpWidget(shell());
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Room'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('100%'), findsNWidgets(2));
   });
 
   test(
@@ -224,33 +279,28 @@ void main() {
     mqtt.configuration['speakers'] = <Object>[];
     mqtt.configuration['sourcePolicies'] = {'spotify': 'playing'};
     controller.selectedId = 'first';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) =>
-              ProfilePlaybackPage(controller: controller, onMeasurement: () {}),
-        ),
-      ),
-    );
-    final policies = find.text('Source release policies (whole household)');
-    await tester.scrollUntilVisible(policies, 200);
-    await tester.tap(policies);
+    await tester.pumpWidget(shell());
+    await tester.tap(find.text('Rules'));
     await tester.pumpAndSettle();
-    final policy = find.descendant(
-      of: find.widgetWithText(InputDecorator, 'Spotify keeps its claim'),
-      matching: find.byType(DropdownButton<String>),
+    final policy = find.byType(SegmentedChoice<String>);
+    await tester.scrollUntilVisible(
+      policy,
+      200,
+      scrollable: find.byType(Scrollable).first,
     );
-    String shown() => tester.widget<DropdownButton<String>>(policy).value!;
+    String shown() => tester.widget<SegmentedChoice<String>>(policy).value;
     expect(shown(), 'playing');
 
     mqtt.failures['policy'] = 1;
-    await tester.ensureVisible(policy);
-    await tester.tap(policy);
+    await tester.ensureVisible(find.text('Waits its turn'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('While the session is connected').last);
+    await tester.tap(find.text('Waits its turn'));
     await tester.pumpAndSettle();
     expect(shown(), 'playing');
+    expect(
+      mqtt.commands.where((command) => command['action'] == 'policy'),
+      hasLength(1),
+    );
 
     controller.receive('Configuration', {
       ...mqtt.configuration,
@@ -311,6 +361,74 @@ void main() {
         throwsA(isA<StateError>()),
       );
     }
+  });
+
+  test('a low latency speaker address comes from this computer', () async {
+    controller.receive('Configuration', {
+      ...mqtt.configuration,
+      'revision': 2,
+      'speakers': [
+        {'id': 'xps', 'name': 'XPS', 'snapClientId': 'syren-player-1'},
+        {'id': 'kitchen', 'name': 'Kitchen', 'snapClientId': 'syren-player-2'},
+      ],
+    });
+    controller.readPairing = () async => {
+      'snapclient_id': 'syren-player-1',
+      'address': '192.168.2.27',
+      'host': 'hifiberry.local',
+    };
+    expect(await controller.knownSpeakerAddress('xps'), '192.168.2.27');
+    expect(await controller.knownSpeakerAddress('kitchen'), isNull);
+
+    await storage.put('speakerAddress:kitchen', '192.168.2.61');
+    expect(await controller.knownSpeakerAddress('kitchen'), '192.168.2.61');
+
+    controller.readPairing = () async =>
+        throw const ProcessException('syren-audio-control', []);
+    expect(await controller.knownSpeakerAddress('xps'), isNull);
+  });
+
+  testWidgets('choosing a paired speaker fills in its address', (tester) async {
+    controller.receive('Configuration', {
+      ...mqtt.configuration,
+      'revision': 2,
+      'speakers': [
+        {'id': 'xps', 'name': 'XPS', 'snapClientId': 'syren-player-1'},
+      ],
+    });
+    controller.selectedId = 'first';
+    controller.readPairing = () async => {
+      'snapclient_id': 'syren-player-1',
+      'address': '192.168.2.27',
+    };
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: syrenTheme(),
+        home: Scaffold(
+          body: PcAudioCard(
+            profile: ProfileContext(
+              controller: controller,
+              positioning: PositioningControls(
+                isMeasuring: () => false,
+                toggle: () async {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('None'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('XPS').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Sends to 192.168.2.27'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.text('Change'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '192.168.2.27',
+    );
   });
 
   test('a missing speaker address fails before the PC command', () async {

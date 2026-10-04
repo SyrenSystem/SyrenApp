@@ -2,6 +2,7 @@
 
 from collections import Counter
 import ipaddress
+import select
 import socket
 import struct
 import threading
@@ -86,6 +87,9 @@ class PacketFilter:
             self.trusted = True
         return self.trusted
 
+    def receiving(self):
+        return self.last_received is not None and self.clock() - self.last_received <= OUTAGE_SECONDS
+
     def status(self):
         return {'accepted': self.accepted, 'rejected': dict(self.rejected),
                 'source_port': self.source[0] if self.source else None,
@@ -142,17 +146,28 @@ class Ingress:
 
     def run(self):
         while self.running:
-            received = False
             with self.lock:
-                if self.listener:
-                    try:
-                        packet, address = self.listener.recvfrom(2048)
-                        received = True
-                        if self.gate and self.filter.accept(packet, address):
-                            self.forwarder.sendto(packet, ('127.0.0.1', self.forwarder.getsockname()[1]))
-                        elif not self.gate:
-                            self.discarded += 1
-                    except BlockingIOError:
-                        pass
-            if not received:
-                time.sleep(0.001)
+                listener = self.listener
+            if listener is None:
+                time.sleep(0.01)
+                continue
+            try:
+                readable, _, _ = select.select([listener], [], [], 0.05)
+            except (OSError, ValueError):
+                with self.lock:
+                    if listener is self.listener:
+                        raise
+                continue
+            if not readable:
+                continue
+            with self.lock:
+                if listener is not self.listener:
+                    continue
+                try:
+                    packet, address = listener.recvfrom(2048)
+                    if self.gate and self.filter.accept(packet, address):
+                        self.forwarder.sendto(packet, ('127.0.0.1', self.forwarder.getsockname()[1]))
+                    elif not self.gate:
+                        self.discarded += 1
+                except BlockingIOError:
+                    pass

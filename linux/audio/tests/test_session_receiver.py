@@ -69,6 +69,30 @@ class SessionReceiverTests(unittest.TestCase):
         self.assertEqual(('new',), receiver.selected)
         self.assertEqual({'stream': .5}, graph.gains)
 
+    def test_forcing_fast_uses_arriving_packets_without_waiting_for_auto_trust(self):
+        graph = FakeGraph()
+        receiver = self.receiver(graph)
+        receiver.tick()
+        configuration = receiver.state.messages['Configuration']
+        configuration['groups'][0]['enabledSources'] = ['laptop']
+        session = receiver.state.messages['Catalogue']['sessions'][1]
+        session.update(source='laptop', pcMode='auto')
+        session['transports'].append({'id': 'rtp', 'kind': 'rtp', 'speakerId': 'speaker',
+                                     'endpoint': 'rtp-path', 'available': True})
+        packet_input = {'sessionId': 'new', 'transportId': 'rtp', 'clientId': None,
+                        'receiving': True, 'trusted': False, 'muted': True, 'gain': 0}
+        graph.status = lambda: [dict(graph.item), dict(packet_input)]
+        graph.ensure_rtp = lambda *arguments: None
+        receiver.tick()
+        self.assertEqual({'stream': .5}, graph.gains)
+        session['pcMode'] = 'fast'
+        receiver.tick()
+        self.assertEqual({'rtp': .5}, graph.gains)
+        session['pcMode'] = 'stable'
+        receiver.tick()
+        self.assertEqual({'stream': .5}, graph.gains)
+        self.assertEqual([], graph.removed)
+
     def test_a_silent_input_is_released_after_the_local_grace(self):
         graph = FakeGraph()
         receiver = self.receiver(graph, receiving=False)
@@ -176,6 +200,28 @@ class SessionReceiverTests(unittest.TestCase):
         self.assertEqual([True], stopped)
         self.assertEqual(('pw-cli', 'destroy', '42'), commands[-1])
         self.assertEqual(set(), graph.orphans)
+
+    def test_rtp_buffer_covers_two_output_cycles_and_complete_packets(self):
+        for requested, expected in [(5, 7.5), (6, 7.5), (8, 10), (20, 20)]:
+            with self.subTest(requested=requested):
+                graph = object.__new__(SessionOutputGraph)
+                graph.guard = threading.RLock()
+                graph.inputs = {}
+                graph.create_stage = lambda name: None
+                commands = []
+                process = SimpleNamespace(poll=lambda: None)
+
+                def spawn(command, environment=None):
+                    commands.append(command)
+                    return process
+
+                graph.spawn = spawn
+                with patch.object(Ingress, 'prepare', return_value=5000), \
+                        patch.object(Ingress, 'open'), patch('session_graph.run_realtime'):
+                    graph.ensure_rtp('pc', {'id': 'rtp', 'endpoint': 'rtp://192.168.1.20@192.168.1.21:46000',
+                                           'latencyMsec': requested})
+                properties = json.loads(commands[0][-1])
+                self.assertEqual(expected, properties['sess.latency.msec'])
 
     def test_a_failing_rtp_input_does_not_silence_other_sessions(self):
         graph = FailingRtpGraph()

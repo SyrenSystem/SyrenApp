@@ -115,6 +115,16 @@ def select_transport(session, speaker_id, health=None):
     return transports[0] if transports else None
 
 
+def select_transports(session, speaker_id, health=None):
+    mode = session.get('pcMode', 'auto')
+    transports = session.get('transports', [])
+    if mode in ('stable', 'fast'):
+        kind = 'snapcast' if mode == 'stable' else 'rtp'
+        transports = [transport for transport in transports if transport['kind'] == kind]
+    transport = select_transport(dict(session, transports=transports), speaker_id, health)
+    return [transport] if transport else []
+
+
 class OrderedPlaybackState:
     def __init__(self, state_id):
         self.state_id = state_id

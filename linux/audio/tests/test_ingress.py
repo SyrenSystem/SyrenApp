@@ -78,6 +78,18 @@ class IngressTests(unittest.TestCase):
         receive(self.now, 800)
         self.assertFalse(self.filter.usable())
 
+    def test_forced_fast_reports_packets_without_waiting_for_automatic_recovery(self):
+        self.assertFalse(self.filter.receiving())
+        self.filter.accept(packet(), self.address)
+        self.assertTrue(self.filter.receiving())
+        self.assertFalse(self.filter.usable())
+        self.now = 0.2
+        self.filter.accept(packet(2), self.address)
+        self.assertTrue(self.filter.receiving())
+        self.assertFalse(self.filter.usable())
+        self.now = 0.701
+        self.assertFalse(self.filter.receiving())
+
     def test_startup_latch_expires(self):
         self.now = 61
         self.assertFalse(self.filter.accept(packet(), self.address))
@@ -98,6 +110,29 @@ class IngressTests(unittest.TestCase):
         with self.assertRaises(BlockingIOError):
             ingress.listener.recvfrom(2048)
         ingress.close()
+
+    def test_forwarding_recovers_when_the_listening_socket_is_replaced(self):
+        ingress = Ingress('127.0.0.1', PacketFilter('127.0.0.1', time.monotonic() + 10), port=0)
+        worker = threading.Thread(target=ingress.run, daemon=True)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                for sequence in range(1, 7):
+                    port = ingress.prepare()
+                    ingress.open()
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+                        receiver.bind(('127.0.0.1', port))
+                        receiver.settimeout(.25)
+                        if sequence == 1:
+                            worker.start()
+                        sender.sendto(packet(sequence), ingress.listener.getsockname())
+                        self.assertEqual(packet(sequence), receiver.recv(2048))
+                    ingress.close()
+        finally:
+            ingress.running = False
+            ingress.close()
+            if worker.is_alive():
+                worker.join(timeout=.25)
+        self.assertFalse(worker.is_alive())
 
 
 if __name__ == '__main__':

@@ -1,7 +1,6 @@
-import 'dart:convert';
-import 'package:flutter/services.dart';
 import 'package:final_project/ui/app_feedback.dart';
 import 'package:final_project/providers/settings_provider.dart';
+import 'package:final_project/util/app_version.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,13 +12,7 @@ class SettingsPageWidget extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageWidgetState extends ConsumerState<SettingsPageWidget> {
-  late final Future<String> _version = rootBundle
-      .loadString('version.json')
-      .then((value) {
-        final metadata = jsonDecode(value) as Map<String, dynamic>;
-        return 'Version ${metadata['version']}';
-      })
-      .catchError((Object error) => 'Version unavailable');
+  late final Future<String> _version = loadAppVersion();
 
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();

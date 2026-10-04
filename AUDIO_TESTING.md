@@ -29,6 +29,10 @@ Version 3 additionally runs `smoke_sessions.py` with real Snapclient 0.35 Pulse 
 
 `smoke_pc_sender.py` runs the production PC capture process against a private PipeWire, Pulse and WirePlumber instance. Hardware discovery is disabled in that instance. It checks advancing silent capture, owner exit, owner heartbeat timeout, killed capture and desktop route restoration. Install WirePlumber 0.5 or later and Pulse utilities, including `parec`, for this check. The existing desktop sink must remain unchanged.
 
+`smoke_ingress.py` sends 1,000 real RTP packets through the production ingress at a 2.5 ms cadence. Kernel receive timestamps must show forwarding delay below 0.5 ms at p95, with no valid packet lost. The forwarding thread must actually run at FIFO 86. The test obtains that limit through a temporary user service when needed. Socket replacement tests also exercise closing and reopening a listener while its forwarding thread waits. These checks protect the small RTP buffer; they do not measure WiFi delivery or physical playback latency.
+
+Receiver buffer tests require at least two 128 frame output cycles and round upward to complete 120 frame packets. A requested 5 ms target therefore uses 360 frames, or 7.5 ms. This avoids recurring local underruns caused by PipeWire rounding the request downward. Physical continuity must still be recorded separately on the actual speaker and network.
+
 The profile tests cover per person priority, pairwise overlap within and between people, three session conflicts, zero desired gain, stale positioning, standby reception, transport selection, coherent generations and ordered revisions. Server tests cover persisted claims, release policy, guest ownership changes and migration. App tests exercise selection ownership, remembered profiles, event routing, default levels and volume coalescing.
 
 Version 3 physical acceptance is tracked in `../SyrenDocs/ProfileSessionsDelivery.md`. The remaining sections describe the version 2 regression contract, which remains in the gate to protect the rollback path.

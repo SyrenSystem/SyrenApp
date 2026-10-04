@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from session_selection import OrderedPlaybackState, select_sessions, select_transport
+from session_selection import OrderedPlaybackState, select_sessions, select_transport, select_transports
 
 
 class SessionSelectionTests(unittest.TestCase):
@@ -118,6 +118,27 @@ class SessionSelectionTests(unittest.TestCase):
         self.assertEqual(select_transport(session, 'speaker')['id'], 'rtp')
         self.assertEqual(select_transport(session, 'speaker', {'rtp': False})['id'], 'pc-snap')
         self.assertEqual(select_transport(session, 'other-speaker')['id'], 'pc-snap')
+
+    def test_whole_pc_modes_switch_the_same_warm_transports(self):
+        session = self.session('pc', 'first', 'laptop', 1)
+        session['transports'].append({'id': 'rtp', 'kind': 'rtp', 'speakerId': 'speaker', 'available': True})
+        original = list(session['transports'])
+        for mode in ('auto', 'stable', 'fast') * 7:
+            session['pcMode'] = mode
+            selected = select_transports(session, 'speaker')
+            self.assertEqual([transport['id'] for transport in selected], ['pc-snap' if mode == 'stable' else 'rtp'])
+            self.assertEqual(session['transports'], original)
+        session['pcMode'] = 'fast'
+        self.assertEqual(select_transports(session, 'speaker', {'rtp': False}), [])
+        self.assertEqual(select_transports(session, 'other-speaker'), [])
+        session['pcMode'] = 'auto'
+        self.assertEqual(select_transports(session, 'speaker', {'rtp': False})[0]['id'], 'pc-snap')
+        self.assertEqual(select_transports(session, 'other-speaker')[0]['id'], 'pc-snap')
+
+    def test_legacy_sessions_still_choose_one_copy(self):
+        session = self.session('pc', 'first', 'laptop', 1)
+        session['transports'].append({'id': 'rtp', 'kind': 'rtp', 'speakerId': 'speaker', 'available': True})
+        self.assertEqual([transport['id'] for transport in select_transports(session, 'speaker')], ['rtp'])
 
     def test_server_eligibility_is_used_without_comparing_clocks(self):
         session = self.session('music', 'first', 'spotify', 1)

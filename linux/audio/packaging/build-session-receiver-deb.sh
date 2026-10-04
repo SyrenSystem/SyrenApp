@@ -24,7 +24,7 @@ for unit in snapclient.service syren-rtp-audio.service syren-rtp-broker.service 
 done
 cat > "$package_root/DEBIAN/control" <<'CONTROL'
 Package: syren-session-receiver
-Version: 3.4.0
+Version: 3.6.0
 Section: sound
 Priority: optional
 Architecture: all
@@ -48,4 +48,4 @@ fi
 INSTALL
 chmod 755 "$package_root/DEBIAN/postinst"
 mkdir -p "$output_directory"
-dpkg-deb --root-owner-group --build "$package_root" "$output_directory/syren-session-receiver_3.4.0_all.deb"
+dpkg-deb --root-owner-group --build "$package_root" "$output_directory/syren-session-receiver_3.6.0_all.deb"

@@ -11,6 +11,8 @@ import tempfile
 import time
 import uuid
 
+from desktop_outputs import check_desktop_outputs
+
 DIRECTORY = Path(__file__).resolve().parents[1]
 
 
@@ -86,6 +88,8 @@ def main():
                     wait(lambda: not any(sink['name'] == 'SyrenSession_' + identity for sink in json.loads(pulse('-f', 'json', 'list', 'sinks'))))
             print(json.dumps({'capture_advances_during_silence': True, 'owner_exit_restores_routing': True,
                               'owner_timeout_restores_routing': True, 'capture_kill_restores_routing': True}))
+            check_desktop_outputs(environment, pulse, log, directory, wait)
+            check_desktop_outputs(environment, pulse, log, directory, wait, group_termination=True)
         except Exception:
             print('Default:', pulse('get-default-sink'), 'Sinks:', pulse('list', 'short', 'sinks'), file=sys.stderr)
             print((directory / 'audio.log').read_text()[-1500:], file=sys.stderr)

@@ -129,6 +129,7 @@ class SessionOutputGraph(AudioGraph):
             existing = self.inputs.get(identity)
             if existing is not None:
                 existing['sessionId'] = session_id
+                existing['pcMode'] = transport.get('pcMode')
                 if not expect_audio:
                     existing['missingSince'] = None
                 failed = expect_audio and existing.get('missingSince') is not None and time.monotonic() - existing['missingSince'] >= 3
@@ -150,6 +151,7 @@ class SessionOutputGraph(AudioGraph):
                 self.discard(node_name, process)
                 raise
             self.inputs[identity] = {'sessionId': session_id, 'transportId': identity,
+                                     'pcMode': transport.get('pcMode'),
                                      'clientId': client_id, 'endpoint': endpoint,
                                      'node': node_name, 'process': process, 'gain': 0.0,
                                      'muted': True, 'receiving': False, 'missingSince': None}
@@ -178,6 +180,7 @@ class SessionOutputGraph(AudioGraph):
             identity = transport['id']
             if identity in self.inputs:
                 self.inputs[identity]['sessionId'] = session_id
+                self.inputs[identity]['pcMode'] = transport.get('pcMode')
                 if self.inputs[identity]['process'].poll() is None:
                     packet_filter = self.inputs[identity]['ingress'].filter
                     if packet_filter.source is None:
@@ -187,6 +190,12 @@ class SessionOutputGraph(AudioGraph):
             endpoint = urlparse(transport['endpoint'])
             if endpoint.scheme != 'rtp' or not endpoint.username or not endpoint.hostname or not endpoint.port:
                 raise ValueError('Invalid RTP endpoint')
+            latency = transport.get('latencyMsec') or 20
+            if not isinstance(latency, int) or not 1 <= latency <= 200:
+                raise ValueError('Invalid RTP latency')
+            # Cover two output cycles and let PipeWire keep complete packets.
+            latency_frames = max(latency * 48, 2 * 128)
+            latency = math.ceil(latency_frames / 120) * 120 / 48
             ingress = Ingress(endpoint.hostname, PacketFilter(endpoint.username, time.monotonic() + 10), endpoint.port)
             node_name = self.stage_name(identity)
             source_name = node_name + '_rtp'
@@ -196,7 +205,7 @@ class SessionOutputGraph(AudioGraph):
                 self.create_stage(node_name)
                 properties = {
                     'source.ip': '127.0.0.2', 'source.port': port, 'sess.media': 'audio',
-                    'sess.latency.msec': 20, 'sess.min-ptime': 2.5, 'sess.max-ptime': 2.5,
+                    'sess.latency.msec': latency, 'sess.min-ptime': 2.5, 'sess.max-ptime': 2.5,
                     'sess.ts-direct': False, 'sess.ignore-ssrc': True, 'stream.may-pause': False,
                     'audio.format': 'S16BE', 'audio.rate': 48000, 'audio.channels': 2,
                     'audio.position': ['FL', 'FR'],
@@ -211,6 +220,7 @@ class SessionOutputGraph(AudioGraph):
                 raise
             threading.Thread(target=run_realtime, args=(ingress.run, INPUT_PRIORITY), daemon=True).start()
             self.inputs[identity] = {'sessionId': session_id, 'transportId': identity, 'clientId': None,
+                                     'pcMode': transport.get('pcMode'),
                                      'endpoint': transport['endpoint'], 'node': node_name, 'sourceNode': source_name,
                                      'process': process, 'ingress': ingress, 'gain': 0.0, 'muted': True, 'receiving': False}
 
@@ -273,7 +283,12 @@ class SessionOutputGraph(AudioGraph):
                                 except subprocess.CalledProcessError:
                                     continue
                             connected.add(channel)
-                item['receiving'] = len(connected) == 2 and ('ingress' not in item or item['ingress'].filter.usable())
+                receiving = True
+                if 'ingress' in item:
+                    packet_filter = item['ingress'].filter
+                    receiving = packet_filter.receiving()
+                    item['trusted'] = len(connected) == 2 and packet_filter.usable()
+                item['receiving'] = len(connected) == 2 and receiving
                 if item['receiving']:
                     item['missingSince'] = None
                 elif item.get('missingSince') is None:

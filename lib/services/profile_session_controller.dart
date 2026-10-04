@@ -30,9 +30,13 @@ class ProfileSessionController extends ChangeNotifier {
   String? pcSessionId;
   String? pcOwner;
   List<dynamic>? _pcTransports;
+  Map<String, dynamic>? pcCaptureStatus;
+  Completer<void>? _pcModeChanged;
+  String? _requestedPcMode;
   Process? _sender;
   Timer? _heartbeat;
   int _pcSequence = 1;
+  String _pcMode = 'auto';
   int _positionSequence = DateTime.now().microsecondsSinceEpoch;
   bool _disposed = false;
   int? _readyGeneration;
@@ -41,6 +45,124 @@ class ProfileSessionController extends ChangeNotifier {
   final _volumes = VolumeChangeQueue(null);
 
   bool get pcAvailable => Platform.isLinux;
+
+  String get preferredPcMode {
+    final saved = storage.get('pcMode');
+    return const ['auto', 'stable', 'fast'].contains(saved) ? saved! : 'auto';
+  }
+
+  String? get preferredPcSpeaker => storage.get('pcSpeaker');
+  String get preferredPcDestination => storage.get('pcDestination') ?? 'house';
+  String? get pcFastSpeakerId =>
+      (_pcTransports ?? const [])
+              .cast<Map<String, dynamic>>()
+              .where((transport) => transport['kind'] == 'rtp')
+              .firstOrNull?['speakerId']
+          as String?;
+
+  Future<void> rememberPcSpeaker(String? speakerId) async {
+    if (speakerId == null) {
+      await storage.delete('pcSpeaker');
+    } else {
+      await storage.put('pcSpeaker', speakerId);
+    }
+  }
+
+  Future<void> setPcMode(String mode) async {
+    if (!const ['auto', 'stable', 'fast'].contains(mode)) {
+      throw StateError('Choose Automatic, Stable or Fast');
+    }
+    if (pcSessionId != null) {
+      if (mode == 'fast' && pcFastSpeakerId == null) {
+        throw StateError('Stop PC audio and choose a fast speaker first');
+      }
+      final sender = _sender;
+      if (sender == null) {
+        throw StateError('PC capture is unavailable');
+      }
+      if (_pcModeChanged != null) {
+        throw StateError('A PC output change is pending');
+      }
+      final changed = Completer<void>();
+      _pcModeChanged = changed;
+      _requestedPcMode = mode;
+      try {
+        sender.stdin.writeln(jsonEncode({'mode': mode}));
+        await changed.future.timeout(const Duration(seconds: 3));
+      } finally {
+        _pcModeChanged = null;
+        _requestedPcMode = null;
+      }
+    }
+    await storage.put('pcMode', mode);
+    if (!_disposed) notifyListeners();
+  }
+
+  @visibleForTesting
+  void receivePcCaptureStatus(Map<String, dynamic> status) {
+    if (pcSessionId == null) return;
+    pcCaptureStatus = status;
+    if (status['mode'] == _requestedPcMode &&
+        _pcModeChanged?.isCompleted == false) {
+      _pcModeChanged!.complete();
+    }
+    if (status['mode'] is String &&
+        const ['auto', 'stable', 'fast'].contains(status['mode'])) {
+      if (_pcMode != status['mode']) {
+        _pcMode = status['mode'] as String;
+        _pcEvent('transport');
+      }
+      unawaited(storage.put('pcMode', status['mode'] as String));
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  String pcTransportDescription(String mode) {
+    final speakerId = pcFastSpeakerId;
+    if (mode == 'stable') return 'Snapcast only';
+    if (speakerId == null) {
+      return mode == 'auto'
+          ? 'Snapcast, no fast speaker selected'
+          : 'Choose a fast speaker before playing';
+    }
+    final speakers = (configuration?['speakers'] as List? ?? const [])
+        .cast<Map<String, dynamic>>();
+    final name =
+        speakers
+            .where((speaker) => speaker['id'] == speakerId)
+            .firstOrNull?['name'] ??
+        'speaker';
+    final receiver = (receivers?['receivers'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .where((receiver) => receiver['speakerId'] == speakerId)
+        .firstOrNull;
+    if (receiver == null || receiver['online'] != true) {
+      return 'Waiting for $name';
+    }
+    final status = receiver['status'] as Map<String, dynamic>;
+    final inputs = (status['inputs'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .where(
+          (input) =>
+              input['sessionId'] == pcSessionId &&
+              (input['pcMode'] ?? 'auto') == mode,
+        );
+    final audible = inputs
+        .where(
+          (input) =>
+              input['receiving'] == true &&
+              input['muted'] == false &&
+              (input['gain'] as num) > 0,
+        )
+        .firstOrNull;
+    if (audible == null) return 'Waiting for audio on $name';
+    final isRtp = audible['clientId'] == null;
+    return isRtp ? 'Low latency on $name' : 'Snapcast fallback on $name';
+  }
+
+  /// Reads the low latency pairing record that an earlier laptop audio setup left on this computer.
+  @visibleForTesting
+  Future<Map<String, dynamic>?> Function() readPairing = _readPairing;
 
   List<Map<String, dynamic>> get profiles =>
       (configuration?['profiles'] as List? ?? []).cast<Map<String, dynamic>>();
@@ -308,6 +430,9 @@ class ProfileSessionController extends ChangeNotifier {
     String? receiverAddress,
   }) async {
     if (!Platform.isLinux || selected == null || pcSessionId != null) return;
+    if (preferredPcMode == 'fast' && speakerId == null) {
+      throw StateError('Choose a fast speaker before playing');
+    }
     String? senderAddress;
     if (receiverAddress != null) {
       receiverAddress = await speakerAddress(receiverAddress);
@@ -320,23 +445,47 @@ class ProfileSessionController extends ChangeNotifier {
       'speakerId': speakerId,
       'receiverAddress': receiverAddress,
       'senderAddress': senderAddress,
+      'desktopOutputs': true,
     });
     pcSessionId = response['sessionId'] as String;
     _pcTransports = response['transports'] as List<dynamic>;
     pcOwner = selectedId;
     _pcSequence = 1;
+    _pcMode = 'auto';
+    pcCaptureStatus = null;
+    if (speakerId != null && receiverAddress != null) {
+      await storage.put('speakerAddress:$speakerId', receiverAddress);
+    }
     try {
+      if (response['desktopOutputs'] != true) {
+        throw StateError(
+          'Update SyrenServer before using the three PC outputs',
+        );
+      }
       final helper = File(
         '${File(Platform.resolvedExecutable).parent.path}/lib/syren-audio/profile_pc_sender.py',
       );
       final source = File('linux/audio/profile_pc_sender.py');
       final script = helper.existsSync() ? helper.path : source.absolute.path;
-      _sender = await Process.start('python3', [script]);
+      _sender = await Process.start('systemd-run', [
+        '--user',
+        '--pipe',
+        '--wait',
+        '--collect',
+        '--quiet',
+        '--property=LimitRTPRIO=86',
+        '--property=ExitType=cgroup',
+        '--',
+        'python3',
+        script,
+      ]);
       _sender!.stdin.writeln(
         jsonEncode({
           'host': mqtt.connectedHost,
           'sessionId': pcSessionId,
           'transports': response['transports'],
+          'desktopOutputs': true,
+          'mode': preferredPcMode,
         }),
       );
       _sender!.stderr.transform(utf8.decoder).listen((message) {
@@ -344,6 +493,19 @@ class ProfileSessionController extends ChangeNotifier {
         if (!_disposed) notifyListeners();
       });
       final process = _sender!;
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+            if (!identical(process, _sender)) return;
+            try {
+              receivePcCaptureStatus(jsonDecode(line) as Map<String, dynamic>);
+            } on FormatException {
+              error = 'PC capture returned invalid status';
+              if (!_disposed) notifyListeners();
+            }
+          });
+      await storage.put('pcDestination', destination);
       unawaited(
         process.stdin.done.then(
           (_) {},
@@ -366,6 +528,45 @@ class ProfileSessionController extends ChangeNotifier {
       rethrow;
     }
     notifyListeners();
+  }
+
+  /// The address this computer last used for a speaker, or the one its pairing record names.
+  Future<String?> knownSpeakerAddress(String speakerId) async {
+    final saved = storage.get('speakerAddress:$speakerId');
+    if (saved != null) return saved;
+    final speaker = (configuration?['speakers'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .where((speaker) => speaker['id'] == speakerId)
+        .firstOrNull;
+    if (speaker == null) return null;
+    try {
+      final pairing = await readPairing();
+      if (pairing == null ||
+          pairing['snapclient_id'] != speaker['snapClientId']) {
+        return null;
+      }
+      return (pairing['address'] ?? pairing['host']) as String?;
+    } on Object {
+      // Without the laptop audio package the address is simply typed in.
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _readPairing() async {
+    if (!Platform.isLinux) return null;
+    final installed =
+        '${Platform.environment['HOME']}/.local/bin/syren-audio-control';
+    final result = await Process.run(
+      File(installed).existsSync() ? installed : 'syren-audio-control',
+      [
+        'rtp',
+        jsonEncode({'version': 1, 'action': 'status'}),
+      ],
+    ).timeout(const Duration(seconds: 5));
+    if (result.exitCode != 0) return null;
+    final status = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+    return (status['preferences'] as Map<String, dynamic>?)?['pairing']
+        as Map<String, dynamic>?;
   }
 
   // Accepts an IPv4 address or a name that resolves to one.
@@ -431,8 +632,10 @@ class ProfileSessionController extends ChangeNotifier {
       // A heartbeat repeats the latest sequence so it never takes one from a real event.
       'eventSequence': action == 'heartbeat' ? _pcSequence : ++_pcSequence,
       'action': action,
-      if (action == 'reconcile' || action == 'heartbeat')
+      if (const ['reconcile', 'heartbeat', 'transport'].contains(action))
         'transports': _pcTransports,
+      if (const ['reconcile', 'heartbeat', 'transport'].contains(action))
+        'pcMode': _pcMode,
     });
   }
 
@@ -441,6 +644,12 @@ class ProfileSessionController extends ChangeNotifier {
     _pcEvent('end');
     pcSessionId = pcOwner = null;
     _pcTransports = null;
+    pcCaptureStatus = null;
+    if (_pcModeChanged?.isCompleted == false) {
+      _pcModeChanged!.completeError(
+        StateError('PC audio stopped during the output change'),
+      );
+    }
     final process = _sender;
     _sender = null;
     if (process != null) {

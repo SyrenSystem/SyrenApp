@@ -188,7 +188,7 @@ filter=*:warning
             assert amplitude(samples, 400) > 500 and amplitude(samples, 1000) > 500, 'Sessions did not mix'
             assert identities == [graph.process.pid, graph.pulse.pid] + [item['process'].pid for item in graph.inputs.values()], 'A healthy process restarted'
             rtp_port = unused_port()
-            graph.ensure_rtp('pc', {'id': 'rtp', 'endpoint': f'rtp://127.0.0.1@127.0.0.1:{rtp_port}'})
+            graph.ensure_rtp('pc', {'id': 'rtp', 'latencyMsec': 5, 'endpoint': f'rtp://127.0.0.1@127.0.0.1:{rtp_port}'})
 
             def transmit_rtp():
                 sequence = timestamp = 0
