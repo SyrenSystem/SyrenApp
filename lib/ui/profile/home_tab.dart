@@ -59,7 +59,9 @@ class HomeTab extends StatelessWidget {
                 const Text('Make your first room', style: SyrenText.cardTitle),
                 const SizedBox(height: 6),
                 Text(
-                  'A room is a set of speakers that play together. Spotify lists each one as a device.',
+                  household.castingOffered
+                      ? 'A room is a set of speakers that play together. Spotify lists each one as a device, and so does AirPlay where you turn it on.'
+                      : 'A room is a set of speakers that play together. Spotify lists each one as a device.',
                   style: SyrenText.small,
                 ),
                 const SizedBox(height: 14),

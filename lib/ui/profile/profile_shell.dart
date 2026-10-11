@@ -54,6 +54,7 @@ class HouseholdBuilder extends StatelessWidget {
             configuration: configuration,
             catalogue: controller.catalogue,
             receivers: controller.receivers,
+            castingDevices: controller.castingDevices,
           ),
         );
       },

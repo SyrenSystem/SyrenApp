@@ -36,7 +36,9 @@ class RoomsTab extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Text(
-            'A room is a set of speakers that play together. Spotify lists each one as SyrenSystem · room name.',
+            household.castingOffered
+                ? 'A room is a set of speakers that play together. Spotify lists each one as SyrenSystem · room name, and AirPlay does too where it is on.'
+                : 'A room is a set of speakers that play together. Spotify lists each one as SyrenSystem · room name.',
             style: SyrenText.small.copyWith(fontSize: 14),
           ),
         ),
@@ -210,6 +212,7 @@ class _RoomEditorPageState extends State<RoomEditorPage> with CommandRunner {
   Widget build(BuildContext context) {
     final speakers = widget.household.speakers;
     final canSave = name.text.trim().isNotEmpty && !busy;
+    final roomName = name.text.trim().isEmpty ? 'this room' : name.text.trim();
     return Scaffold(
       body: SyrenPage(
         padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
@@ -300,12 +303,20 @@ class _RoomEditorPageState extends State<RoomEditorPage> with CommandRunner {
           const MonoLabel('Sources allowed here'),
           RowsCard(
             rows: [
-              for (final source in const ['spotify', 'laptop'])
+              for (final source in [
+                'spotify',
+                'laptop',
+                if (widget.household.castingOffered) 'casting',
+              ])
                 ToggleRow(
                   title: sourceName(source),
-                  subtitle: source == 'spotify'
-                      ? 'Shows up in Spotify as SyrenSystem · ${name.text.trim().isEmpty ? 'this room' : name.text.trim()}'
-                      : 'Sound from a computer running SyrenApp',
+                  subtitle: switch (source) {
+                    'spotify' =>
+                      'Shows up in Spotify as SyrenSystem · $roomName',
+                    'casting' =>
+                      'Shows up in AirPlay as SyrenSystem · $roomName',
+                    _ => 'Sound from a computer running SyrenApp',
+                  },
                   value: enabled.contains(source),
                   onChanged: busy
                       ? null

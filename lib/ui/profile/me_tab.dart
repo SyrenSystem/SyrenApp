@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/household.dart';
 import '../syren_theme.dart';
+import 'casting_devices_page.dart';
 import 'profile_picker.dart';
 import 'profile_shell.dart';
 import 'syren_widgets.dart';
@@ -47,6 +48,8 @@ class _MeTabState extends State<MeTab> with CommandRunner {
     final controller = widget.profile.controller;
     final me = widget.me;
     final linked = me.profile!['spotifyAccountId'] != null;
+    final casting = widget.household.castingOffered;
+    final devices = (me.profile!['castingDevices'] as List? ?? const []).length;
     return SyrenPage(
       children: [
         PageHeader(title: 'Me', trailing: widget.avatar),
@@ -59,6 +62,13 @@ class _MeTabState extends State<MeTab> with CommandRunner {
               valueColor: linked ? SyrenColors.good : null,
               onTap: () => push(SpotifyLinkPage(profile: widget.profile)),
             ),
+            if (casting)
+              InfoRow(
+                label: 'AirPlay',
+                value: devices > 0 ? '$devices linked ›' : 'Not linked ›',
+                valueColor: devices > 0 ? SyrenColors.good : null,
+                onTap: () => push(CastingDevicesPage(profile: widget.profile)),
+              ),
             InfoRow(
               label: 'Follow me',
               value: me.followMe ? 'On ›' : 'Off ›',
@@ -75,8 +85,12 @@ class _MeTabState extends State<MeTab> with CommandRunner {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Text(
-            linked
+            linked && casting
+                ? 'Pick SyrenSystem or SyrenSystem · room in Spotify or AirPlay. This app can be closed while they play.'
+                : linked
                 ? 'Pick SyrenSystem or SyrenSystem · room in Spotify. This app can be closed while Spotify plays.'
+                : casting
+                ? 'Link Spotify to play music from your own account, or pick SyrenSystem in AirPlay.'
                 : 'Link Spotify to play music from your own account.',
             style: SyrenText.small,
           ),
@@ -146,9 +160,11 @@ class ListeningCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            const Text(
-              'Start something in Spotify and pick SyrenSystem.',
-              style: TextStyle(
+            Text(
+              household.castingOffered
+                  ? 'Start something in Spotify or AirPlay and pick SyrenSystem.'
+                  : 'Start something in Spotify and pick SyrenSystem.',
+              style: const TextStyle(
                 fontFamily: SyrenFonts.sans,
                 fontSize: 15,
                 color: white,

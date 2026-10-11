@@ -211,6 +211,33 @@ void main() {
     },
   );
 
+  test('a casting device list from another household is ignored', () {
+    var notified = 0;
+    controller.addListener(() => notified++);
+    controller.receive('CastingDevices', {
+      'stateId': 'another',
+      'devices': [
+        {'id': 'a' * 64, 'name': 'Stranger'},
+      ],
+    });
+    expect(controller.castingDevices, isNull);
+    expect(notified, 0);
+    final devices = {
+      'stateId': 'house',
+      'devices': [
+        {'id': 'b' * 64, 'name': 'Phone'},
+      ],
+    };
+    controller.receive('CastingDevices', devices);
+    expect(controller.castingDevices, devices);
+    expect(notified, 1);
+    controller.receive('Configuration', {
+      ...mqtt.configuration,
+      'stateId': 'another',
+    });
+    expect(controller.castingDevices, isNull);
+  });
+
   test('an online version two server ends profile playback', () {
     final service = MqttService();
     final profiles = ProfileSessionController(service, storage);

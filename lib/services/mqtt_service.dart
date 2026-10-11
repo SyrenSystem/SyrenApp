@@ -156,6 +156,7 @@ class MqttService {
       'Catalogue',
       'Receivers',
       'SpotifyLinkStatus',
+      'CastingDevices',
       'Result/#',
     ]) {
       client.subscribe('SyrenSystem/v3/$kind', MqttQos.atLeastOnce);

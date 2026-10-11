@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:final_project/services/mqtt_service.dart';
 import 'package:final_project/services/profile_session_controller.dart';
 import 'package:final_project/ui/profile/profile_shell.dart';
+import 'package:final_project/ui/profile/syren_widgets.dart';
 import 'package:final_project/ui/syren_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,6 +94,33 @@ Map<String, dynamic> configuration() => {
     },
   ],
 };
+
+// The server lists AirPlay, and Maya and Jonas have linked the given devices.
+Map<String, dynamic> castingConfiguration({
+  List<Map<String, dynamic>> maya = const [],
+  List<Map<String, dynamic>> jonas = const [],
+}) {
+  final base = configuration();
+  final profiles = (base['profiles'] as List).cast<Map<String, dynamic>>();
+  return {
+    ...base,
+    'revision': 2,
+    'sources': [
+      {'id': 'spotify', 'name': 'Spotify'},
+      {'id': 'laptop', 'name': 'PC audio'},
+      {'id': 'casting', 'name': 'AirPlay'},
+    ],
+    'profiles': [
+      {...profiles[0], 'castingDevices': maya},
+      {...profiles[1], 'castingDevices': jonas},
+    ],
+  };
+}
+
+// The server reports that the audio service runs AirPlay, with these recently seen devices.
+Map<String, dynamic> castingDevices([
+  List<Map<String, dynamic>> devices = const [],
+]) => {'stateId': 'house', 'available': true, 'devices': devices};
 
 void main() {
   late Directory directory;
@@ -257,6 +285,218 @@ void main() {
     expect(saved['profile']['overlap'], [
       {'first': 'laptop', 'second': 'spotify'},
     ]);
+  });
+
+  testWidgets('the room editor offers AirPlay only when the server offers it', (
+    tester,
+  ) async {
+    controller.selectedId = 'maya';
+    await open(tester);
+    await tester.tap(find.text('Rooms'));
+    await tester.pumpAndSettle();
+    Future<void> expectNoAirPlay() async {
+      await tester.tap(find.text('+ New room'));
+      await tester.pumpAndSettle();
+      expect(find.text('Spotify'), findsOneWidget);
+      expect(find.text('AirPlay'), findsNothing);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+    }
+
+    await expectNoAirPlay();
+    // A server that knows AirPlay still hides it while the audio service does not run it.
+    controller.receive('Configuration', castingConfiguration());
+    await tester.pumpAndSettle();
+    await expectNoAirPlay();
+    controller.receive('CastingDevices', castingDevices());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('+ New room'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Terrace');
+    await tester.tap(find.text('Kitchen speaker'));
+    await tester.pump();
+    expect(
+      find.text('Shows up in AirPlay as SyrenSystem · Terrace'),
+      findsOneWidget,
+    );
+    final airPlay = find.descendant(
+      of: find.ancestor(
+        of: find.text('AirPlay'),
+        matching: find.byType(ToggleRow),
+      ),
+      matching: find.byType(Switch),
+    );
+    expect(tester.widget<Switch>(airPlay).value, isFalse);
+    await tester.tap(airPlay);
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    final saved = mqtt.commands.singleWhere(
+      (command) => command['action'] == 'group',
+    );
+    expect(saved['enabledSources'], ['spotify', 'laptop', 'casting']);
+    expect(saved['sourceLevels'], {'spotify': 100.0, 'laptop': 100.0});
+  });
+
+  testWidgets('allowing AirPlay with Spotify saves that pair', (tester) async {
+    controller.selectedId = 'maya';
+    await open(tester);
+    await tester.tap(find.text('Rules'));
+    await tester.pumpAndSettle();
+    final mix = find.descendant(
+      of: find.ancestor(
+        of: find.text('When AirPlay starts where Spotify is playing'),
+        matching: find.byType(SyrenCard),
+      ),
+      matching: find.text('Mix'),
+    );
+    await tester.scrollUntilVisible(
+      mix,
+      200,
+      scrollable: find
+          .ancestor(
+            of: find.text('When PC audio starts where Spotify is playing'),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.ensureVisible(mix);
+    await tester.pumpAndSettle();
+    await tester.tap(mix);
+    await tester.pumpAndSettle();
+    final saved = mqtt.commands.singleWhere(
+      (command) => command['action'] == 'profile',
+    );
+    expect(saved['profile']['id'], 'maya');
+    expect(saved['profile']['overlap'], [
+      {'first': 'casting', 'second': 'spotify'},
+    ]);
+  });
+
+  testWidgets(
+    'linking a recently seen device sends linkCasting with the device id',
+    (tester) async {
+      final phone = 'a' * 64;
+      final tablet = 'b' * 64;
+      controller.receive(
+        'Configuration',
+        castingConfiguration(
+          jonas: [
+            {'id': tablet, 'name': 'Jonas iPad'},
+          ],
+        ),
+      );
+      controller.receive(
+        'CastingDevices',
+        castingDevices([
+          {
+            'id': phone,
+            'name': "Yme's iPhone",
+            'protocol': 'airplay',
+            'lastSeen': DateTime.now().toUtc().toIso8601String(),
+            'playing': true,
+            'connected': true,
+            'profileId': null,
+            'ownerId': 'guest:$phone',
+          },
+          {
+            'id': tablet,
+            'name': 'Jonas iPad',
+            'protocol': 'airplay',
+            'lastSeen': DateTime.now().toUtc().toIso8601String(),
+            'playing': false,
+            'connected': false,
+            'profileId': 'jonas',
+            'ownerId': 'jonas',
+          },
+        ]),
+      );
+      controller.selectedId = 'maya';
+      await open(tester);
+      await tester.tap(find.text('Me'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('AirPlay'));
+      await tester.pumpAndSettle();
+      expect(find.text("Yme's iPhone"), findsOneWidget);
+      expect(find.text('Playing now'), findsOneWidget);
+      expect(find.text('Linked to Jonas'), findsOneWidget);
+      expect(find.text('Link'), findsOneWidget);
+      await tester.ensureVisible(find.text('Link'));
+      await tester.tap(find.text('Link'));
+      await tester.pumpAndSettle();
+      final command = mqtt.commands.singleWhere(
+        (command) => command['action'] == 'linkCasting',
+      );
+      expect(command['profileId'], 'maya');
+      expect(command['deviceId'], phone);
+    },
+  );
+
+  testWidgets('a paused device that is still connected says so', (
+    tester,
+  ) async {
+    final phone = 'a' * 64;
+    controller.receive('Configuration', castingConfiguration());
+    controller.receive(
+      'CastingDevices',
+      castingDevices([
+        {
+          'id': phone,
+          'name': "Yme's iPhone",
+          'protocol': 'airplay',
+          // The session started long ago, but the device is still connected.
+          'lastSeen': DateTime.now()
+              .subtract(const Duration(minutes: 40))
+              .toUtc()
+              .toIso8601String(),
+          'playing': false,
+          'connected': true,
+          'profileId': null,
+          'ownerId': 'guest:$phone',
+        },
+      ]),
+    );
+    controller.selectedId = 'maya';
+    await open(tester);
+    await tester.tap(find.text('Me'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AirPlay'));
+    await tester.pumpAndSettle();
+    expect(find.text('Connected now'), findsOneWidget);
+    expect(find.text('Seen 40 min ago'), findsNothing);
+  });
+
+  testWidgets('unlinking sends unlinkCasting', (tester) async {
+    final phone = 'a' * 64;
+    controller.receive(
+      'Configuration',
+      castingConfiguration(
+        maya: [
+          {'id': phone, 'name': "Yme's iPhone"},
+        ],
+      ),
+    );
+    controller.receive('CastingDevices', castingDevices());
+    controller.selectedId = 'maya';
+    await open(tester);
+    await tester.tap(find.text('Me'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 linked ›'), findsOneWidget);
+    await tester.tap(find.text('AirPlay'));
+    await tester.pumpAndSettle();
+    expect(find.text("Yme's iPhone"), findsOneWidget);
+    expect(
+      find.text('No AirPlay device has played here in the last 15 minutes.'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.text('Unlink'));
+    await tester.tap(find.text('Unlink'));
+    await tester.pumpAndSettle();
+    final command = mqtt.commands.singleWhere(
+      (command) => command['action'] == 'unlinkCasting',
+    );
+    expect(command['profileId'], 'maya');
+    expect(command['deviceId'], phone);
   });
 
   testWidgets('the home volume changes the room master volume', (tester) async {

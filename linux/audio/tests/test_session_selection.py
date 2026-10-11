@@ -111,6 +111,38 @@ class SessionSelectionTests(unittest.TestCase):
         self.assertEqual(result.selected, ('pc',))
         self.assertEqual(set(result.receiving), {'pc', 'music'})
 
+    def test_paused_casting_stays_ready_beside_spotify(self):
+        sessions = [self.session('music', 'first', 'spotify', 1), self.session('cast', 'first', 'casting', 2)]
+        sessions[1].update(state='paused', eligible=False)
+        result = self.select(sessions)
+        self.assertEqual(result.selected, ('music',))
+        self.assertEqual(set(result.receiving), {'music', 'cast'})
+
+    def test_a_displaced_casting_input_stays_warm(self):
+        sessions = [self.session('music', 'second', 'spotify', 3), self.session('pc', 'first', 'laptop', 2),
+                    self.session('cast', 'third', 'casting', 1)]
+        result = self.select(sessions)
+        self.assertEqual(result.selected, ('music',))
+        self.assertEqual(set(result.receiving), {'music', 'pc', 'cast'})
+        self.assertEqual(result.reasons['cast'], 'displaced by source priority or a newer incompatible claim')
+
+    def test_two_casting_sessions_from_one_sender_never_mix(self):
+        self.profiles[0] = self.profile('first', [('casting', 'casting')])
+        sessions = [self.session('house', 'first', 'casting', 1), self.session('room', 'first', 'casting', 2)]
+        for session in sessions:
+            session['senderId'] = 'a' * 64
+        self.assertEqual(self.select(sessions).selected, ('room',))
+        sessions[0]['claimSequence'] = 3
+        self.assertEqual(self.select(sessions).selected, ('house',))
+
+    def test_two_casting_senders_of_one_profile_may_mix_when_allowed(self):
+        sessions = [self.session('phone', 'first', 'casting', 1), self.session('laptop', 'first', 'casting', 2)]
+        sessions[0]['senderId'] = 'a' * 64
+        sessions[1]['senderId'] = 'b' * 64
+        self.assertEqual(self.select(sessions).selected, ('laptop',))
+        self.profiles[0] = self.profile('first', [('casting', 'casting')])
+        self.assertEqual(self.select(sessions).selected, ('laptop', 'phone'))
+
     def test_one_transport_per_session_and_rtp_only_on_its_physical_speaker(self):
         session = self.session('pc', 'first', 'laptop', 1)
         session['transports'].append({'id': 'rtp', 'kind': 'rtp', 'endpoint': 'rtp-path',

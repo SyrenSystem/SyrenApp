@@ -85,6 +85,25 @@ Software tests cannot certify audible continuity of the real laptop, network, Sn
 
 The current enable/disable implementation tears down shared output and restores the original Snapclient service. Its software lifecycle checks do not prove the physical transition meets the above gap and timing targets. That remains a known validation gap, and may require a transport lifecycle change if measurement fails.
 
+AirPlay casting, from app 3.11.0 with receiver 3.7.0, adds checks with a real iPhone. First run `deploy/snapserver/casting_e2e.py` from SyrenServer against the live stack, with `--target` set to the advertised AirPlay name: without an iPhone, it covers discovery, time to first audio, the catalogue and receivers, the PCM format, the level rule and session end. Then:
+
+1. In Control Center, `SyrenSystem` plays in every room with AirPlay on, and `SyrenSystem · Kantoor` plays only in Kantoor.
+2. Pick `SyrenSystem · Kantoor` and `SyrenSystem · Keuken` together, with AirPlay on in both rooms. Both play, in sync with each other.
+3. Pick `SyrenSystem` and `SyrenSystem · Kantoor` together from one phone. Kantoor plays the music once.
+4. The iPhone volume changes loudness, and the app's room and AirPlay levels still apply on top.
+5. Pause for one minute, then resume: playback continues with no new claim. Then pause, start Spotify in the same room and resume AirPlay: AirPlay stays displaced until Spotify stops, because its claim is older.
+6. Start Spotify in a room, then AirPlay. The newest claim wins, unless the Rules tab lets Spotify and AirPlay mix.
+7. Link the playing iPhone under Me, AirPlay, with no other source of that profile playing there and Follow me off or with a current reading. There is no gap; Follow me and source priority apply from then on.
+8. Take over the same name from a Mac. The iPhone's AirPlay stops, the documented exception, the Mac is heard, and the new session belongs to the Mac's owner. Repeat once with the iPhone stopping its AirPlay just before the Mac picks the name.
+9. Toggle Private WiFi Address for the home network and restart the phone. The device ID and its link must stay the same. If they do not, record that a phone must be linked again after such a change.
+10. Walk out of WiFi range while playing. The room goes quiet or falls back within about 8 seconds, and the session ends within about 60 seconds.
+11. While the iPhone plays, run `ss -tn state established '( sport >= :7000 and sport <= :7015 )'` on the PC and note the local address. If it is the PC's WiFi address and playback drops out, turn off WiFi power saving for that connection with `nmcli connection modify "<WiFi name>" 802-11-wireless.powersave 2`.
+12. From an iPhone on WiFi, check that the targets stay listed in Control Center for 30 minutes, since several mDNS responders share UDP 5353 on the PC.
+13. Play a video and note the audio lag, about 2 seconds expected. This is information only.
+14. Set `SYREN_CASTING` to `"0"` and restart the stack. The app shows no AirPlay toggle, hint or Me row within a few seconds. Set it back to `"1"` and restart: the toggles return, and every room keeps its AirPlay setting.
+
+Record the metadata trace of the first iPhone session with `SYREN_CASTING_TRACE=1`, which logs placeholders instead of identity values, and turn it into the `test_recorded_iphone_trace` fixture with synthetic values. AirPlay results belong in `../SyrenDocs/AirPlayCasting-2026-10-08.md`.
+
 ## Spotify incident on 2026-09-09
 
 At 16:01:14 CEST, the running librespot 0.8.0 logged `Connection to server closed.` Audio key timeouts followed, then a Connect shutdown and a broken pipe. It reauthenticated around 16:01:19, reported an empty active device, and the Spotify stream later became idle. Snapserver remained running and the speaker stayed connected. No reliable reproduction or cause for the remote connection closing was established.
@@ -92,3 +111,5 @@ At 16:01:14 CEST, the running librespot 0.8.0 logged `Connection to server close
 A proposed process supervisor was removed before deployment because restarting and reauthenticating did not establish that music would resume. Upstream [issue 1419](https://github.com/librespot-org/librespot/issues/1419) describes a similar failure sequence. On the user's subsequent request, [PR 1692](https://github.com/librespot-org/librespot/pull/1692), still unmerged upstream, was applied to current librespot development revision `a1b66d3c8a14e55a9572a9e17467150dca618c9a`. The patch preserves playback state across reconnects. All 26 upstream workspace tests passed. A real recurrence followed by automatic audible playback remains required to verify recovery from the observed incident.
 
 The server's `Audio recovery build` also runs `deploy/snapserver/smoke_snapserver.py` against the native Snapserver binary. It checks 12 source activity transitions and 31 priority stream removals while synthetic PCM continues. This caught Snapserver 0.35.0 dereferencing a deleted iterator in `Stream.RemoveStream`, then calling a deleted meta stream when source activity changed. The image carries a source patch for both. These checks use private ports and do not contact Spotify or the production server. Version and patch checksums are recorded in the server's `deploy/snapserver/versions.json`.
+
+The same build runs `deploy/snapserver/smoke_casting.py` in its `airplay-builder` stage. Two shairport-sync instances, started with the production command and Landlock rules, run against nqptp and a private system bus behind the Avahi relay. The smoke checks AirPlay 2 mode, the configured device IDs and names, both metadata pipes, that nqptp survives stray control names, that the relay denies calls other than Avahi's, that both instances report a lost relay with the `syav` metadata item, that every thread keeps its inherited real time priority, shutdown within 2 seconds, and that an instance refuses to start without nqptp. A build that cannot set FIFO 84 skips only the priority check, and a build that blocks the Landlock calls runs the instances without the Landlock options; the summary says so as `priority_skipped` or `landlock_skipped`. It contacts no sender, host Avahi or broker. Idle instances cannot prove the priority of the player threads, which only exist during a session, so the live priority check after deployment still applies.

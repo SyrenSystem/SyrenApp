@@ -39,6 +39,49 @@ class SessionReceiverTests(unittest.TestCase):
         self.assertEqual('new', graph.inputs['stream']['sessionId'])
         self.assertIs(process, graph.inputs['stream']['process'])
 
+    def test_casting_snapcast_session_is_bound_and_warm_like_spotify(self):
+        graph = FakeGraph()
+        graph.item.update(transportId='airplay-kantoor', endpoint='airplay-kantoor')
+        ensured = []
+
+        def ensure_snapcast(session_id, transport, expect_audio=True):
+            graph.item['sessionId'] = session_id
+            ensured.append((session_id, transport['id'], expect_audio))
+
+        graph.ensure_snapcast = ensure_snapcast
+        receiver = SessionReceiver({'state_id': 'home', 'speaker_id': 'speaker', 'physical_id': 'physical',
+                                    'boot_sequence': 1}, graph, lambda status: None)
+        configuration = {'protocolVersion': 3, 'stateId': 'home', 'generation': 1, 'revision': 1,
+                         'playbackActivated': True, 'groups': [{'id': 'group', 'speakerIds': ['speaker'],
+                                                              'enabledSources': ['spotify', 'casting'], 'muted': False}]}
+        session = {'id': 'cast', 'ownerId': 'guest:' + 'a' * 64, 'source': 'casting', 'protocol': 'airplay',
+                   'senderId': 'a' * 64, 'destination': 'group', 'claimSequence': 2, 'claimed': True,
+                   'eligible': True, 'state': 'playing',
+                   'transports': [{'id': 'airplay-kantoor', 'kind': 'snapcast', 'endpoint': 'airplay-kantoor',
+                                   'available': True}]}
+        catalogue = {'protocolVersion': 3, 'stateId': 'home', 'generation': 1, 'revision': 2,
+                     'configurationRevision': 1, 'profiles': [], 'sessions': [session]}
+        for kind, payload in [('Configuration', configuration), ('Catalogue', catalogue),
+                              ('Gains', {'stateId': 'home', 'generation': 1, 'revision': 1,
+                                         'configurationRevision': 1, 'catalogueRevision': 2,
+                                         'gains': {'speaker': {'cast': .5}}}),
+                              ('Bindings', {'stateId': 'home', 'generation': 1, 'revision': 1,
+                                            'clients': {'client': 'airplay-kantoor'}})]:
+            receiver.receive(kind, payload)
+        with patch('session_receiver.time.monotonic', return_value=1000):
+            receiver.tick()
+        self.assertEqual(('cast',), receiver.selected)
+        self.assertEqual({'airplay-kantoor': .5}, graph.gains)
+        self.assertEqual(('cast', 'airplay-kantoor', True), ensured[-1])
+        receiver.state.messages['Catalogue']['sessions'][0].update(state='paused', eligible=False)
+        for now in (1001, 1010):
+            with patch('session_receiver.time.monotonic', return_value=now):
+                receiver.tick()
+        self.assertEqual((), receiver.selected)
+        self.assertEqual({}, graph.gains)
+        self.assertEqual([], graph.removed)
+        self.assertEqual(('cast', 'airplay-kantoor', False), ensured[-1])
+
     def receiver(self, graph, receiving=True):
         receiver = SessionReceiver({'state_id': 'home', 'speaker_id': 'speaker', 'physical_id': 'physical',
                                     'boot_sequence': 1}, graph, lambda status: None)

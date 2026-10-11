@@ -23,6 +23,9 @@ class ProfileSessionController extends ChangeNotifier {
   Map<String, dynamic>? catalogue;
   Map<String, dynamic>? receivers;
   Map<String, dynamic>? linkStatus;
+
+  /// AirPlay devices that played here recently, as the server lists them.
+  Map<String, dynamic>? castingDevices;
   String? selectedId;
   String? lease;
   String? error;
@@ -187,7 +190,7 @@ class ProfileSessionController extends ChangeNotifier {
       if (previous?['stateId'] != message['stateId']) {
         selectedId = storage.get('profile:${message['stateId']}');
         lease = null;
-        catalogue = receivers = null;
+        catalogue = receivers = castingDevices = null;
         _readyGeneration = null;
       }
       configuration = message;
@@ -235,6 +238,10 @@ class ProfileSessionController extends ChangeNotifier {
         return;
       }
       linkStatus = message;
+    } else if (kind == 'CastingDevices') {
+      final current = configuration;
+      if (current == null || message['stateId'] != current['stateId']) return;
+      castingDevices = message;
     } else if (kind == 'ServerStatus') {
       final online = message['online'] == true;
       if (online == serverOnline) return;
@@ -289,7 +296,7 @@ class ProfileSessionController extends ChangeNotifier {
     if (_disposed) return;
     _readyRetry?.cancel();
     unawaited(stopPc());
-    configuration = catalogue = receivers = linkStatus = null;
+    configuration = catalogue = receivers = linkStatus = castingDevices = null;
     selectedId = lease = error = null;
     _readyGeneration = null;
     _readyPending = false;

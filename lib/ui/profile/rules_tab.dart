@@ -8,7 +8,8 @@ import 'syren_widgets.dart';
 const _sourceNotes = {
   'spotify': 'Music, podcasts',
   'laptop': 'Calls and videos from a computer',
-  'casting': 'Not available yet',
+  'casting':
+      'iPhone, iPad and Mac with AirPlay. A second device on the same AirPlay name replaces the first.',
 };
 
 /// The source pairs people can choose to mix.
@@ -16,6 +17,13 @@ const _pairs = [
   ('laptop', 'spotify', 'When PC audio starts where Spotify is playing'),
   ('spotify', 'spotify', 'When two Spotify accounts want the same room'),
   ('laptop', 'laptop', 'When two computers send PC audio to the same room'),
+  ('casting', 'spotify', 'When AirPlay starts where Spotify is playing'),
+  ('casting', 'laptop', 'When AirPlay starts where PC audio is playing'),
+  (
+    'casting',
+    'casting',
+    'When one device plays on SyrenSystem and another on a room name',
+  ),
 ];
 
 /// Source order, mixing and the household Spotify policy.

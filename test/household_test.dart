@@ -36,6 +36,8 @@ Map<String, dynamic> session(
   String state = 'playing',
   bool eligible = true,
   int claim = 1,
+  String? protocol,
+  String? sender,
 }) => {
   'id': id,
   'ownerId': owner,
@@ -44,6 +46,8 @@ Map<String, dynamic> session(
   'state': state,
   'eligible': eligible,
   'claimSequence': claim,
+  'protocol': ?protocol,
+  'senderId': ?sender,
 };
 
 Map<String, dynamic> receiver(
@@ -69,9 +73,14 @@ Household household({
   List<Map<String, dynamic>> receivers = const [],
   bool activated = true,
   bool mayaFollows = false,
+  Map<String, dynamic>? castingDevices,
+  List<String> sources = const ['spotify', 'laptop'],
 }) => Household.from(
   configuration: {
     'playbackActivated': activated,
+    'sources': [
+      for (final source in sources) {'id': source, 'name': source},
+    ],
     'profiles': [
       profile('maya', 'Maya', followMe: mayaFollows),
       profile('jonas', 'Jonas'),
@@ -85,6 +94,7 @@ Household household({
   },
   catalogue: {'sessions': sessions},
   receivers: {'receivers': receivers},
+  castingDevices: castingDevices,
 );
 
 void main() {
@@ -160,6 +170,176 @@ void main() {
       room.trace.where((step) => step.state == TraceState.failed).single.detail,
       'Maya paused Spotify',
     );
+  });
+
+  test('paused AirPlay is reported as paused, not broken', () {
+    Room room(String state) => household(
+      groups: [
+        group(
+          'kitchen-room',
+          'Kitchen',
+          ['kitchen'],
+          sources: ['spotify', 'laptop', 'casting'],
+        ),
+      ],
+      sessions: [
+        session(
+          'cast',
+          'maya',
+          'casting',
+          state: state,
+          eligible: false,
+          protocol: 'airplay',
+        ),
+      ],
+      receivers: [
+        receiver('kitchen', reasons: {'cast': 'playback unavailable'}),
+      ],
+    ).rooms.single;
+    String failed(Room room) => room.trace
+        .where((step) => step.state == TraceState.failed)
+        .single
+        .detail;
+
+    final paused = room('paused');
+    expect(paused.reason, 'Paused');
+    expect(paused.trace.last.title, 'It has priority');
+    expect(failed(paused), 'Maya paused AirPlay');
+    final connected = room('connected');
+    expect(connected.reason, 'Connected');
+    expect(failed(connected), 'Waiting for Maya to play in AirPlay');
+  });
+
+  test('an idle room mentions AirPlay only while the server offers it', () {
+    Household result({required bool listed, required bool running}) =>
+        household(
+          groups: [
+            group(
+              'kitchen-room',
+              'Kitchen',
+              ['kitchen'],
+              sources: ['spotify', 'casting'],
+            ),
+          ],
+          receivers: [receiver('kitchen')],
+          sources: ['spotify', 'laptop', if (listed) 'casting'],
+          castingDevices: {
+            'stateId': 'house',
+            'available': running,
+            'devices': <Object>[],
+          },
+        );
+    String hint(Household result) => result.rooms.single.trace
+        .firstWhere((step) => step.state == TraceState.failed)
+        .detail;
+
+    final offered = result(listed: true, running: true);
+    expect(offered.castingOffered, isTrue);
+    expect(
+      hint(offered),
+      'Pick SyrenSystem or SyrenSystem · Kitchen in Spotify or AirPlay',
+    );
+    for (final (listed, running) in [(true, false), (false, true)]) {
+      final hidden = result(listed: listed, running: running);
+      expect(hidden.castingOffered, isFalse);
+      expect(
+        hint(hidden),
+        'Pick SyrenSystem or SyrenSystem · Kitchen in Spotify',
+      );
+    }
+  });
+
+  test('an AirPlay guest is named after its device while it is listed', () {
+    final owner = 'guest:${'a' * 64}';
+    Household listed(List<Map<String, dynamic>> devices) => household(
+      groups: [
+        group(
+          'kitchen-room',
+          'Kitchen',
+          ['kitchen'],
+          sources: ['spotify', 'laptop', 'casting'],
+        ),
+      ],
+      sessions: [
+        session(
+          'cast',
+          owner,
+          'casting',
+          protocol: 'airplay',
+          sender: 'a' * 64,
+        ),
+      ],
+      receivers: [
+        receiver('kitchen', selected: ['cast'], audible: ['cast']),
+      ],
+      castingDevices: {'stateId': 'house', 'devices': devices},
+    );
+
+    final named = listed([
+      {
+        'id': 'a' * 64,
+        'name': "Yme's iPhone",
+        'protocol': 'airplay',
+        'playing': true,
+        'profileId': null,
+        'ownerId': owner,
+      },
+    ]).sessions.single;
+    expect(named.owner.guest, isTrue);
+    expect(named.owner.name, "Yme's iPhone");
+    expect(named.label, "Yme's iPhone's AirPlay");
+    expect(listed(const []).sessions.single.owner.name, 'Guest');
+  });
+
+  test('a session label uses its protocol', () {
+    final result = household(
+      groups: [
+        group(
+          'office-room',
+          'Office',
+          ['office'],
+          sources: ['spotify', 'laptop', 'casting'],
+        ),
+      ],
+      sessions: [
+        session(
+          'cast',
+          'maya',
+          'casting',
+          protocol: 'airplay',
+          sender: 'b' * 64,
+        ),
+        session('music', 'jonas', 'spotify'),
+      ],
+      receivers: [
+        receiver(
+          'office',
+          selected: ['cast', 'music'],
+          audible: ['cast', 'music'],
+        ),
+      ],
+    );
+    final cast = result.sessions.first;
+    expect(cast.protocol, 'airplay');
+    expect(cast.senderId, 'b' * 64);
+    expect(cast.label, "Maya's AirPlay");
+    expect(result.sessions.last.protocol, isNull);
+    expect(result.sessions.last.label, "Jonas' Spotify");
+    expect(
+      result.rooms.single.trace.last.detail,
+      "Maya's AirPlay and Jonas' Spotify",
+    );
+    final unknown = Session(
+      id: 'other',
+      source: 'casting',
+      destination: 'house',
+      state: 'playing',
+      eligible: true,
+      claimSequence: 1,
+      owner: cast.owner,
+      protocol: 'later',
+    );
+    expect(unknown.label, "Maya's AirPlay");
   });
 
   test('a room whose speakers do not report is offline', () {

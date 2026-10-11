@@ -1,8 +1,10 @@
 const sourceNames = {
   'spotify': 'Spotify',
   'laptop': 'PC audio',
-  'casting': 'Casting (future)',
+  'casting': 'AirPlay',
 };
+
+const protocolNames = {'airplay': 'AirPlay'};
 
 String sourceName(String source) => sourceNames[source] ?? source;
 
@@ -38,6 +40,8 @@ class Session {
     required this.eligible,
     required this.claimSequence,
     required this.owner,
+    this.protocol,
+    this.senderId,
   });
 
   final String id;
@@ -47,8 +51,12 @@ class Session {
   final bool eligible;
   final int claimSequence;
   final Person owner;
+  final String? protocol;
+  final String? senderId;
 
-  String get label => '${owner.possessive} ${sourceName(source)}';
+  /// The protocol name when there is one, otherwise the source name.
+  String get sourceLabel => protocolNames[protocol] ?? sourceName(source);
+  String get label => '${owner.possessive} $sourceLabel';
 }
 
 class SpeakerState {
@@ -140,12 +148,14 @@ class Household {
     required this.rooms,
     required this.unassigned,
     required this.activated,
+    required this.castingOffered,
   });
 
   factory Household.from({
     required Map<String, dynamic> configuration,
     Map<String, dynamic>? catalogue,
     Map<String, dynamic>? receivers,
+    Map<String, dynamic>? castingDevices,
   }) {
     final profiles = _maps(configuration['profiles']);
     final people = [
@@ -159,6 +169,12 @@ class Household {
         ),
     ];
     final peopleById = {for (final person in people) person.id: person};
+    // A guest that casts is named after its device while the server lists it.
+    final deviceNames = {
+      for (final device in _maps(castingDevices?['devices']))
+        if (device['ownerId'] is String && device['name'] is String)
+          device['ownerId'] as String: device['name'] as String,
+    };
     final sessions = [
       for (final session in _maps(catalogue?['sessions']))
         if (session['state'] != 'ended')
@@ -173,9 +189,11 @@ class Household {
                 peopleById[session['ownerId']] ??
                 Person(
                   id: '${session['ownerId']}',
-                  name: 'Guest',
+                  name: deviceNames[session['ownerId']] ?? 'Guest',
                   colorIndex: -1,
                 ),
+            protocol: session['protocol'] as String?,
+            senderId: session['senderId'] as String?,
           ),
     ];
     final reports = {
@@ -188,6 +206,12 @@ class Household {
     ];
     final speakersById = {for (final speaker in speakers) speaker.id: speaker};
     final activated = configuration['playbackActivated'] != false;
+    // The server knows AirPlay, and the audio service runs it right now.
+    final castingOffered =
+        _maps(
+          configuration['sources'],
+        ).any((source) => source['id'] == 'casting') &&
+        castingDevices?['available'] == true;
     final groups = _maps(configuration['groups']).toList();
     final rooms = [
       for (final group in groups)
@@ -199,6 +223,7 @@ class Household {
           ],
           sessions,
           activated,
+          castingOffered,
         ),
     ];
     final grouped = {
@@ -214,6 +239,7 @@ class Household {
           if (!grouped.contains(speaker.id)) speaker,
       ],
       activated: activated,
+      castingOffered: castingOffered,
     );
   }
 
@@ -225,6 +251,9 @@ class Household {
   /// Speakers in no room. They stay silent.
   final List<SpeakerState> unassigned;
   final bool activated;
+
+  /// Whether the server lists AirPlay and reports it running, so rooms can turn it on.
+  final bool castingOffered;
 
   Person? person(String? identity) =>
       people.where((person) => person.id == identity).firstOrNull;
@@ -284,6 +313,7 @@ class Household {
     List<SpeakerState> speakers,
     List<Session> sessions,
     bool activated,
+    bool castingOffered,
   ) {
     final identity = group['id'] as String;
     final online = speakers.where((speaker) => speaker.online).toList();
@@ -391,7 +421,7 @@ class Household {
     if (routed.isEmpty) {
       return fail(
         sent,
-        'Pick SyrenSystem or SyrenSystem · ${group['name']} in Spotify',
+        'Pick SyrenSystem or SyrenSystem · ${group['name']} in Spotify${castingOffered && enabledSources.contains('casting') ? ' or AirPlay' : ''}',
         'Nothing playing',
         later: [playing, heard],
       );
@@ -425,13 +455,24 @@ class Household {
         if (session.eligible) session,
     ];
     if (eligible.isEmpty) {
-      final paused = newest.source == 'spotify' && newest.state != 'playing';
+      final casting = newest.source == 'casting';
+      final paused = casting
+          ? newest.state == 'paused'
+          : newest.source == 'spotify' && newest.state != 'playing';
+      // A device that picked SyrenSystem holds the room before it plays.
+      final connected = casting && newest.state == 'connected';
       return fail(
         playing,
         paused
-            ? '${newest.owner.name} paused Spotify'
+            ? '${newest.owner.name} paused ${newest.sourceLabel}'
+            : connected
+            ? 'Waiting for ${newest.owner.name} to play in ${newest.sourceLabel}'
             : 'Waiting for ${newest.label} to connect',
-        paused ? 'Paused' : 'Waiting for ${sourceName(newest.source)}',
+        paused
+            ? 'Paused'
+            : connected
+            ? 'Connected'
+            : 'Waiting for ${sourceName(newest.source)}',
         later: [heard, priority],
       );
     }

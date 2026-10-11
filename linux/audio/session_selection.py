@@ -13,6 +13,9 @@ def permits(profile, first, second):
 
 
 def compatible(first, second, profiles):
+    # Two sessions from one sender never play together.
+    if first.get('senderId') and first.get('senderId') == second.get('senderId'):
+        return False
     first_profile = profiles.get(first['ownerId'], {})
     second_profile = profiles.get(second['ownerId'], {})
     return permits(first_profile, first['source'], second['source']) and (
@@ -90,7 +93,7 @@ def select_sessions(catalogue, configuration, desired_gains, speaker_id, failed=
     fallback = choose([session for session in eligible if session['id'] not in identities], profiles)
     if fallback:
         receiving.add(fallback[0]['id'])
-    for source in ('laptop', 'spotify'):
+    for source in ('laptop', 'spotify', 'casting'):
         alternatives = [session for session in scoped if session['source'] == source and session['id'] not in identities]
         if alternatives:
             receiving.add(max(alternatives, key=lambda session: session['claimSequence'])['id'])
