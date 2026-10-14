@@ -60,6 +60,9 @@ class Selection:
     receiving: tuple
     gains: dict
     reasons: dict
+    # Sessions in scope that are paused, or that the server still plays, keep the inputs they already have.
+    # A resume or a snapclient reconnect then needs no new snapclient.
+    kept: tuple = ()
 
 
 def select_sessions(catalogue, configuration, desired_gains, speaker_id, failed=()):
@@ -68,6 +71,7 @@ def select_sessions(catalogue, configuration, desired_gains, speaker_id, failed=
     sessions = [session for session in catalogue.get('sessions', []) if session['state'] != 'ended']
     eligible = []
     scoped = []
+    kept = []
     reasons = {}
     for session in sessions:
         identity = session['id']
@@ -78,6 +82,8 @@ def select_sessions(catalogue, configuration, desired_gains, speaker_id, failed=
         else:
             if any(transport.get('available') for transport in session.get('transports', [])):
                 scoped.append(session)
+            if session['state'] == 'paused' or (session['state'] == 'playing' and session.get('eligible') is True):
+                kept.append(identity)
             if not available(session, failed):
                 reasons[identity] = 'playback unavailable'
                 continue
@@ -105,26 +111,30 @@ def select_sessions(catalogue, configuration, desired_gains, speaker_id, failed=
         reasons[identity] = 'selected'
     if not configuration.get('playbackActivated'):
         receiving.clear()
+        kept.clear()
         reasons = {session['id']: 'waiting for compatible system activation' for session in sessions}
-    return Selection(tuple(session['id'] for session in selected), tuple(sorted(receiving)), gains, reasons)
+    return Selection(tuple(session['id'] for session in selected), tuple(sorted(receiving)), gains, reasons,
+                     tuple(sorted(kept)))
 
 
-def select_transport(session, speaker_id, health=None):
+def select_transport(session, speaker_id, health=None, held=()):
+    # Held transports are used even while the server marks them unavailable.
     health = health or {}
-    transports = [transport for transport in session.get('transports', []) if transport.get('available') and
+    transports = [transport for transport in session.get('transports', []) if
+                  (transport.get('available') or transport['id'] in held) and
                   health.get(transport['id'], True) and
                   (transport.get('speakerId') is None or transport['speakerId'] == speaker_id)]
     transports.sort(key=lambda transport: (transport['kind'] != 'rtp', transport['id']))
     return transports[0] if transports else None
 
 
-def select_transports(session, speaker_id, health=None):
+def select_transports(session, speaker_id, health=None, held=()):
     mode = session.get('pcMode', 'auto')
     transports = session.get('transports', [])
     if mode in ('stable', 'fast'):
         kind = 'snapcast' if mode == 'stable' else 'rtp'
         transports = [transport for transport in transports if transport['kind'] == kind]
-    transport = select_transport(dict(session, transports=transports), speaker_id, health)
+    transport = select_transport(dict(session, transports=transports), speaker_id, health, held)
     return [transport] if transport else []
 
 

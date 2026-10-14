@@ -85,7 +85,8 @@ class SessionReceiverTests(unittest.TestCase):
     def receiver(self, graph, receiving=True):
         receiver = SessionReceiver({'state_id': 'home', 'speaker_id': 'speaker', 'physical_id': 'physical',
                                     'boot_sequence': 1}, graph, lambda status: None)
-        graph.item['receiving'] = receiving
+        if isinstance(graph, FakeGraph):
+            graph.item['receiving'] = receiving
         configuration = {'protocolVersion': 3, 'stateId': 'home', 'generation': 1, 'revision': 1,
                          'playbackActivated': True, 'groups': [{'id': 'group', 'speakerIds': ['speaker'],
                                                               'enabledSources': ['spotify'], 'muted': False}]}
@@ -111,6 +112,146 @@ class SessionReceiverTests(unittest.TestCase):
         self.assertEqual([], graph.removed)
         self.assertEqual(('new',), receiver.selected)
         self.assertEqual({'stream': .5}, graph.gains)
+
+    def test_an_interrupt_keeps_the_gain_of_a_healthy_input_during_the_server_grace(self):
+        graph = FakeGraph()
+        receiver = self.receiver(graph)
+        receiver.tick()
+        session = receiver.state.messages['Catalogue']['sessions'][1]
+        self.assertEqual({'stream': .5}, graph.gains)
+        # When the producer interrupts, the server keeps the session eligible and playing for its grace.
+        session['transports'][0]['available'] = False
+        receiver.tick()
+        self.assertEqual({'stream': .5}, graph.gains)
+        graph.item['receiving'] = False
+        receiver.tick()
+        self.assertEqual({}, graph.gains)
+        graph.item['receiving'] = True
+        session.update(eligible=False)
+        receiver.tick()
+        self.assertEqual({}, graph.gains)
+        self.assertEqual([], graph.removed)
+
+    def paused(self, graph, **changes):
+        receiver = self.receiver(graph)
+        while not receiver.incoming.empty():
+            receiver.state.receive(*receiver.incoming.get())
+        session = receiver.state.messages['Catalogue']['sessions'][1]
+        session.update(state='paused', eligible=False, claimed=False, **changes)
+        return receiver, session
+
+    def test_a_paused_session_keeps_its_input_while_it_is_in_scope(self):
+        for available in (True, False):
+            with self.subTest(available=available):
+                graph = FakeGraph()
+                receiver, session = self.paused(graph)
+                session['transports'][0]['available'] = available
+                # A newer paused session from another receiver takes the warm slot for Spotify.
+                receiver.state.messages['Catalogue']['sessions'].append(dict(
+                    session, id='newer', claimSequence=3,
+                    transports=[{'id': 'other', 'kind': 'snapcast', 'endpoint': 'other', 'available': True}]))
+                for now in (1000, 1004, 1040, 1100):
+                    with patch('session_receiver.time.monotonic', return_value=now):
+                        receiver.tick()
+                self.assertEqual([], graph.removed)
+                self.assertIn(('new', 'stream', False), graph.ensured)
+                self.assertNotIn(('new', 'stream', True), graph.ensured)
+
+    def test_an_ended_or_moved_paused_session_is_still_removed_promptly(self):
+        for changes in ({'state': 'ended'}, {'destination': 'elsewhere'}):
+            with self.subTest(changes=changes):
+                graph = FakeGraph()
+                receiver, session = self.paused(graph)
+                with patch('session_receiver.time.monotonic', return_value=1000):
+                    receiver.tick()
+                self.assertEqual([], graph.removed)
+                session.update(changes)
+                with patch('session_receiver.time.monotonic', return_value=1000.1):
+                    receiver.tick()
+                self.assertEqual(['stream'], graph.removed)
+        graph = FakeGraph()
+        receiver, session = self.paused(graph)
+        receiver.state.messages['Configuration']['groups'][0]['enabledSources'] = ['laptop']
+        with patch('session_receiver.time.monotonic', return_value=1000):
+            receiver.tick()
+        self.assertEqual(['stream'], graph.removed)
+
+    def test_a_long_pause_resumes_on_the_same_snapclient(self):
+        graph, process, spawned, removed = snapcast_graph()
+        stage = {'id': 7, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'node.name': 'syren_gain_stream'}}}
+        graph.objects = lambda: [stage]
+        graph.orphans = set()
+        graph.control = SimpleNamespace(node=lambda name: 7, gain=lambda *arguments: None)
+        receiver, session = self.paused(graph)
+        session['transports'][0]['available'] = False
+        clock = [1000.0]
+
+        def tick_until(end):
+            while clock[0] < end:
+                with patch('session_receiver.time.monotonic', return_value=clock[0]), \
+                        patch('session_graph.time.monotonic', return_value=clock[0]):
+                    receiver.tick()
+                clock[0] += 0.5
+
+        # Snapclient released its Pulse stream after five seconds without chunks, so no node feeds the stage.
+        tick_until(1100)
+        self.assertEqual(([], []), (removed, spawned))
+        session.update(state='playing', eligible=True, claimed=True)
+        session['transports'][0]['available'] = True
+        # The first chunk reaches Pulse only after the two second Snapcast buffer and the producer's own start.
+        tick_until(1106)
+        self.assertEqual(([], []), (removed, spawned))
+        self.assertIs(process, graph.inputs['stream']['process'])
+
+    def test_a_playing_session_keeps_its_input_while_its_snapclient_reconnects(self):
+        graph = FakeGraph()
+        receiver = self.receiver(graph)
+        while not receiver.incoming.empty():
+            receiver.state.receive(*receiver.incoming.get())
+        # Another profile played Spotify later and paused, so it holds the warm Spotify slot.
+        receiver.state.messages['Catalogue']['sessions'].append({
+            'id': 'other', 'ownerId': 'someone', 'source': 'spotify', 'destination': 'house',
+            'claimSequence': 3, 'claimed': True, 'eligible': False, 'state': 'paused',
+            'transports': [{'id': 'otherstream', 'kind': 'snapcast', 'endpoint': 'otherstream', 'available': True}]})
+        with patch('session_receiver.time.monotonic', return_value=1000):
+            receiver.tick()
+        self.assertEqual({'stream': .5}, graph.gains)
+        # Snapclient dropped its Pulse stream while it reconnects to the server.
+        graph.item['receiving'] = False
+        for now in (1001, 1004, 1007, 1010):
+            with patch('session_receiver.time.monotonic', return_value=now):
+                receiver.tick()
+        self.assertEqual([], graph.removed)
+        self.assertEqual('playback unavailable', receiver.reasons['new'])
+        self.assertEqual(('new', 'stream', True), [item for item in graph.ensured if item[0] == 'new'][-1])
+
+    def test_a_reconnecting_snapclient_is_not_replaced(self):
+        graph, process, spawned, removed = snapcast_graph()
+        graph.inputs['stream']['missingSince'] = 995
+        with patch('session_graph.time.monotonic', return_value=1000):
+            graph.ensure_snapcast('new', {'id': 'stream', 'endpoint': 'stream'}, expect_audio=True)
+        self.assertEqual(([], []), (removed, spawned))
+        self.assertIs(process, graph.inputs['stream']['process'])
+
+    def test_a_snapclient_that_stays_without_audio_while_playing_is_replaced(self):
+        graph, process, spawned, removed = snapcast_graph()
+        graph.inputs['stream']['missingSince'] = 960
+        with patch('session_graph.time.monotonic', return_value=1000):
+            graph.ensure_snapcast('new', {'id': 'stream', 'endpoint': 'stream'}, expect_audio=False)
+        self.assertEqual(([], []), (removed, spawned))
+        graph.inputs['stream']['missingSince'] = 960
+        with patch('session_graph.time.monotonic', return_value=1000):
+            graph.ensure_snapcast('new', {'id': 'stream', 'endpoint': 'stream'}, expect_audio=True)
+        self.assertEqual(['stream'], removed)
+        self.assertEqual(1, len(spawned))
+        self.assertIsNot(process, graph.inputs['stream']['process'])
+
+    def test_a_dead_snapclient_is_replaced_at_once(self):
+        graph, process, spawned, removed = snapcast_graph(alive=False)
+        with patch('session_graph.time.monotonic', return_value=1000):
+            graph.ensure_snapcast('new', {'id': 'stream', 'endpoint': 'stream'}, expect_audio=False)
+        self.assertEqual(['stream'], removed)
+        self.assertEqual(1, len(spawned))
 
     def test_forcing_fast_uses_arriving_packets_without_waiting_for_auto_trust(self):
         graph = FakeGraph()
@@ -330,10 +471,42 @@ class RealtimeTests(unittest.TestCase):
         self.assertEqual('args = { rt.prio = 87 }', with_priority('args = { rt.prio = 82 }', 87))
 
 
+def snapcast_graph(alive=True):
+    # A session graph with one Snapcast input whose PipeWire calls are stubbed.
+    graph = object.__new__(SessionOutputGraph)
+    graph.guard = threading.RLock()
+    graph.physical_id = 'physical'
+    graph.directory = Path('/run/syren-test')
+    graph.environment = {}
+    graph.snapcast_host = 'server'
+    graph.snapcast_port = 1704
+    graph.create_stage = lambda node_name: None
+    spawned = []
+    removed = []
+
+    def spawn(command, environment=None):
+        spawned.append(command)
+        return SimpleNamespace(poll=lambda: None, pid=5000 + len(spawned))
+
+    def remove(identity):
+        removed.append(identity)
+        graph.inputs.pop(identity)
+
+    graph.spawn = spawn
+    graph.remove = remove
+    process = SimpleNamespace(poll=lambda: None if alive else 0, pid=4242)
+    graph.inputs = {'stream': {'sessionId': 'new', 'transportId': 'stream', 'pcMode': 'auto',
+                               'clientId': 'client', 'endpoint': 'stream', 'node': 'syren_gain_stream',
+                               'process': process, 'gain': 0.0, 'muted': True, 'receiving': False,
+                               'missingSince': None}}
+    return graph, process, spawned, removed
+
+
 class FakeGraph:
     def __init__(self, failures=(), healthy=True):
         self.item = {'sessionId': 'old', 'transportId': 'stream', 'clientId': 'client',
                      'endpoint': 'stream', 'receiving': True, 'muted': True, 'gain': 0}
+        self.ensured = []
         self.removed = []
         self.gains = {}
         self.failures = list(failures)
@@ -354,7 +527,9 @@ class FakeGraph:
         return [dict(self.item)]
 
     def ensure_snapcast(self, session_id, transport, expect_audio=True):
-        self.item['sessionId'] = session_id
+        if transport['id'] == self.item['transportId']:
+            self.item['sessionId'] = session_id
+        self.ensured.append((session_id, transport['id'], expect_audio))
 
     def apply(self, gains):
         if gains and self.failures:

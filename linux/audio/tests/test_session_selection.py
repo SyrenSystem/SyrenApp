@@ -196,6 +196,35 @@ class SessionSelectionTests(unittest.TestCase):
         self.configuration['playbackActivated'] = False
         self.assertEqual(self.select([self.session('music', 'first', 'spotify', 1)]).receiving, ())
 
+    def test_paused_sessions_in_scope_keep_their_inputs(self):
+        older = dict(self.session('older', 'first', 'spotify', 1), state='paused', eligible=False)
+        newer = dict(self.session('newer', 'second', 'spotify', 2), state='paused', eligible=False)
+        interrupted = dict(self.session('interrupted', 'third', 'spotify', 3), state='paused', eligible=False)
+        interrupted['transports'] = [dict(interrupted['transports'][0], available=False)]
+        ended = dict(self.session('ended', 'first', 'casting', 4), state='ended', eligible=False)
+        elsewhere = dict(self.session('elsewhere', 'second', 'casting', 5), state='paused', destination='other')
+        playing = self.session('playing', 'third', 'casting', 6)
+        stopping = dict(self.session('stopping', 'first', 'laptop', 7), eligible=False)
+        result = self.select([older, newer, interrupted, ended, elsewhere, playing, stopping])
+        self.assertEqual(('newer',), tuple(identity for identity in result.receiving
+                                           if identity not in ('playing', 'stopping')))
+        self.assertEqual(('interrupted', 'newer', 'older', 'playing'), result.kept)
+        # A session that fails at this speaker only still keeps its input while its snapclient reconnects.
+        self.assertIn('playing', self.select([playing], failed={'playing'}).kept)
+        self.configuration['groups'][0]['enabledSources'] = ['laptop', 'casting']
+        self.assertEqual((), self.select([older, newer, interrupted]).kept)
+        self.configuration['groups'][0]['enabledSources'] = ['spotify']
+        self.configuration['playbackActivated'] = False
+        self.assertEqual((), self.select([older, newer, interrupted]).kept)
+
+    def test_a_held_transport_is_used_while_the_server_marks_it_unavailable(self):
+        session = self.session('music', 'first', 'spotify', 1)
+        session['transports'][0]['available'] = False
+        self.assertEqual([], select_transports(session, 'speaker'))
+        self.assertEqual(['music-snap'], [transport['id'] for transport in
+                                          select_transports(session, 'speaker', held={'music-snap'})])
+        self.assertEqual([], select_transports(session, 'speaker', {'music-snap': False}, held={'music-snap'}))
+
 
 class OrderedPlaybackStateTests(unittest.TestCase):
     def test_stale_generations_and_duplicate_revisions_are_rejected(self):

@@ -23,6 +23,10 @@ OUTPUT_PRIORITY = 88
 BRIDGE_PRIORITY = 87
 INPUT_PRIORITY = 86
 
+# Snapclient reconnects by itself and drops its Pulse stream while no chunks arrive.
+# A live one is replaced only after this long without audio while its session plays.
+SNAPCLIENT_STALL_SECONDS = 30
+
 
 def realtime_priority(wanted):
     # Returns the highest allowed priority up to the wanted one, or None when real time is not allowed.
@@ -132,9 +136,14 @@ class SessionOutputGraph(AudioGraph):
                 existing['pcMode'] = transport.get('pcMode')
                 if not expect_audio:
                     existing['missingSince'] = None
-                failed = expect_audio and existing.get('missingSince') is not None and time.monotonic() - existing['missingSince'] >= 3
-                if existing['process'].poll() is None and not failed:
+                stalled = expect_audio and existing.get('missingSince') is not None and (
+                    time.monotonic() - existing['missingSince'] >= SNAPCLIENT_STALL_SECONDS)
+                if existing['process'].poll() is None and not stalled:
                     return
+                logger = getattr(self, 'logger', None)
+                if logger:
+                    logger.warning('Replacing snapclient for %s: %s', identity,
+                                   'no audio while playing' if stalled else 'process exited')
                 self.remove(identity)
             endpoint = transport['endpoint']
             node_name = self.stage_name(identity)

@@ -117,9 +117,25 @@ class SessionReceiver:
                         session_id, transport, expect_audio=session['state'] == 'playing'))
                 elif transport['kind'] == 'rtp' and transport.get('speakerId') == speaker_id and transport.get('available'):
                     self.ensure(transport, now, lambda: self.graph.ensure_rtp(session_id, transport))
+        for session_id in result.kept:
+            if session_id in result.receiving:
+                continue
+            session = by_identity[session_id]
+            for transport in session['transports']:
+                # Only an input that already exists is kept; a playing one still counts missing audio, so a hung snapclient is replaced.
+                if transport['kind'] == 'snapcast' and transport['id'] in inputs:
+                    transport = dict(transport, pcMode=session.get('pcMode') or 'auto')
+                    self.ensure(transport, now, lambda: self.graph.ensure_snapcast(
+                        session_id, transport, expect_audio=session['state'] == 'playing'))
         gains_by_transport = {}
         for session_id in result.selected:
-            for transport in select_transports(by_identity[session_id], speaker_id, health):
+            session = by_identity[session_id]
+            held = set()
+            if session.get('eligible') is True and session['state'] == 'playing':
+                # When the producer interrupts, the server keeps the session eligible for its grace, so a healthy input plays out its buffer.
+                held = {transport['id'] for transport in session['transports']
+                        if transport['kind'] == 'snapcast' and health.get(transport['id'])}
+            for transport in select_transports(session, speaker_id, health, held):
                 item = inputs.get(transport['id'])
                 if item and health.get(transport['id']):
                     gains_by_transport[transport['id']] = result.gains[session_id]
@@ -127,7 +143,7 @@ class SessionReceiver:
         for item in self.graph.status():
             transport_id = item['transportId']
             session = by_identity.get(item['sessionId'])
-            if item['sessionId'] in result.receiving:
+            if item['sessionId'] in result.receiving or item['sessionId'] in result.kept:
                 self.cold_since.pop(transport_id, None)
             else:
                 self.cold_since.setdefault(transport_id, now)
